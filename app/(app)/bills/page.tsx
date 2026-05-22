@@ -223,22 +223,28 @@ export default async function BillsPage({
                     className={`${rowClasses(days, paid)} transition-colors`}
                   >
                     <td className="px-4 py-3">
-                      {b.vendor ? (
-                        <Link
-                          href={`/vendors/${b.vendor.id}`}
-                          className="text-zinc-100 hover:underline"
-                        >
-                          {b.vendor.name}
-                        </Link>
-                      ) : (
-                        <span className="text-zinc-500">—</span>
-                      )}
+                      <Link
+                        href={`/bills/${b.id}`}
+                        className="text-zinc-100 hover:underline"
+                      >
+                        {b.vendor?.name ?? "—"}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-zinc-400">
-                      {b.expense_category?.name ?? "—"}
+                      <Link
+                        href={`/bills/${b.id}`}
+                        className="hover:underline"
+                      >
+                        {b.expense_category?.name ?? "—"}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-zinc-500 text-xs">
-                      {b.reference ?? ""}
+                      <Link
+                        href={`/bills/${b.id}`}
+                        className="hover:underline"
+                      >
+                        {b.reference ?? ""}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-100 tabular-nums">
                       <Link
