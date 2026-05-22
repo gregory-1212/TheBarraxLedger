@@ -343,7 +343,12 @@ function Tab1099View({
           <tbody className="divide-y divide-zinc-800">
             {sorted.map((v) => {
               const ytd = ytdByVendor.get(v.id) ?? 0;
-              const overThreshold = ytd >= 60000; // $600 in cents
+              const W9_OK =
+                v.w9_status === "received" || v.w9_status === "verified";
+              // 1099-NEC issuance threshold (still $600 in 2026)
+              const overIssuance = ytd >= 60000;
+              // Backup withholding threshold (raised to $2,000 in 2026)
+              const overBackupWithholding = ytd >= 200000;
               return (
                 <tr
                   key={v.id}
@@ -373,9 +378,14 @@ function Tab1099View({
                   </td>
                   <td className="px-4 py-3 text-right text-zinc-100 tabular-nums">
                     {formatDollars(ytd)}
-                    {overThreshold && v.w9_status !== "received" && v.w9_status !== "verified" && (
-                      <span className="block text-xs text-red-400">
-                        ≥ $600, W-9 needed
+                    {!W9_OK && overBackupWithholding && (
+                      <span className="block text-xs text-red-300 font-medium">
+                        ⚠ Backup withholding required
+                      </span>
+                    )}
+                    {!W9_OK && overIssuance && !overBackupWithholding && (
+                      <span className="block text-xs text-amber-400">
+                        ≥ $600, W-9 needed for 1099
                       </span>
                     )}
                   </td>

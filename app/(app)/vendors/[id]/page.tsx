@@ -8,6 +8,26 @@ import { createClient } from "@/utils/supabase/server";
 
 // ── Server Actions ──────────────────────────────────────────────────────
 
+async function setVendorStatus(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  const status = String(formData.get("status"));
+
+  if (!["active", "inactive", "hold", "archived"].includes(status)) {
+    throw new Error("Invalid vendor status");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("vendors")
+    .update({ status })
+    .eq("id", id);
+  if (error) throw new Error(`Vendor status update failed: ${error.message}`);
+
+  revalidatePath(`/vendors/${id}`);
+  revalidatePath("/vendors");
+}
+
 async function setW9Status(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
@@ -167,6 +187,21 @@ export default async function VendorDetailPage({
 
   if (!vendor) notFound();
 
+  // LED-44: Backup withholding advisory. Triggered when a 1099-eligible vendor
+  // has NOT produced a W-9 AND we've already paid them >= $2,000 YTD (the
+  // 2026 IRS backup-withholding threshold). Advisory only — we do not
+  // automate the 24% withhold itself.
+  const BACKUP_WITHHOLDING_CENTS = 200000; // $2,000
+  const W9_OK = vendor.w9_status === "received" || vendor.w9_status === "verified";
+  const requiresBackupWithholding =
+    vendor.is_1099_eligible && !W9_OK && ytdTotal >= BACKUP_WITHHOLDING_CENTS;
+  // Soft warning at $1,500 — give Greg/Julie a heads-up before crossing.
+  const approachingBackupWithholding =
+    vendor.is_1099_eligible &&
+    !W9_OK &&
+    ytdTotal >= 150000 &&
+    ytdTotal < BACKUP_WITHHOLDING_CENTS;
+
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <header className="mb-6">
@@ -208,6 +243,34 @@ export default async function VendorDetailPage({
           </Link>
         </div>
       </header>
+
+      {/* LED-44 Backup-withholding banners */}
+      {requiresBackupWithholding && (
+        <div className="rounded-md border border-red-900/60 bg-red-950/40 px-4 py-3 mb-6">
+          <p className="text-sm text-red-100 font-medium">
+            ⚠ Backup withholding required
+          </p>
+          <p className="text-xs text-red-200/90 mt-1">
+            This 1099-eligible vendor has been paid {formatDollars(ytdTotal)}{" "}
+            YTD with no W-9 on file. Per 2026 IRS rules, payments at or above
+            $2,000 to a non-W-9 contractor trigger mandatory 24% backup
+            withholding. <strong>Do not pay further</strong> until the W-9
+            lands. Mark W-9 received below once you have it.
+          </p>
+        </div>
+      )}
+      {approachingBackupWithholding && (
+        <div className="rounded-md border border-amber-900/60 bg-amber-950/30 px-4 py-3 mb-6">
+          <p className="text-sm text-amber-100">
+            Approaching backup-withholding threshold
+          </p>
+          <p className="text-xs text-amber-200/90 mt-1">
+            Paid {formatDollars(ytdTotal)} YTD, no W-9 on file. At $2,000 in
+            cumulative payments the IRS requires 24% withholding. Get the W-9
+            now to avoid disrupting future payments.
+          </p>
+        </div>
+      )}
 
       {/* YTD + Recent Bills */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -462,6 +525,101 @@ export default async function VendorDetailPage({
             </p>
           </div>
         )}
+      </div>
+
+      {/* LED-39 Vendor status actions */}
+      <div className="print:hidden rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 mb-6">
+        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+          Vendor status
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {vendor.status === "active" && (
+            <>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="hold" />
+                <button
+                  type="submit"
+                  className="rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-950/50"
+                  title="Pauses without losing history. Use when a vendor relationship is on hold."
+                >
+                  Place on hold
+                </button>
+              </form>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="inactive" />
+                <button
+                  type="submit"
+                  className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  title="Hides from default views but keeps history. Use when relationship ended."
+                >
+                  Mark inactive
+                </button>
+              </form>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="archived" />
+                <button
+                  type="submit"
+                  className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  title="Permanently archive. Old bills still resolve the vendor name."
+                >
+                  Archive
+                </button>
+              </form>
+            </>
+          )}
+          {vendor.status === "hold" && (
+            <>
+              <p className="text-xs text-amber-200">
+                Currently on hold — payments paused.
+              </p>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="active" />
+                <button
+                  type="submit"
+                  className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-50 hover:bg-emerald-600"
+                >
+                  Reactivate
+                </button>
+              </form>
+            </>
+          )}
+          {vendor.status === "inactive" && (
+            <>
+              <p className="text-xs text-zinc-500">
+                Inactive — hidden from default views.
+              </p>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="active" />
+                <button
+                  type="submit"
+                  className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-50 hover:bg-emerald-600"
+                >
+                  Reactivate
+                </button>
+              </form>
+            </>
+          )}
+          {vendor.status === "archived" && (
+            <>
+              <p className="text-xs text-zinc-500">Archived.</p>
+              <form action={setVendorStatus}>
+                <input type="hidden" name="id" value={vendor.id} />
+                <input type="hidden" name="status" value="active" />
+                <button
+                  type="submit"
+                  className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                >
+                  Restore to active
+                </button>
+              </form>
+            </>
+          )}
+        </div>
       </div>
 
       <p className="text-xs text-zinc-600">
