@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/server";
+import { ComplianceScorecard } from "@/components/ComplianceScorecard";
 
 // LED-6: Compliance index page with filters.
 // Filter row: jurisdiction / type / status (all via URL params, shareable links).
@@ -119,6 +121,13 @@ export default async function CompliancePage({
           Add Compliance Item
         </Link>
       </header>
+
+      {/* Scorecard */}
+      <div className="mb-6">
+        <Suspense fallback={null}>
+          <ComplianceScorecard variant="full" />
+        </Suspense>
+      </div>
 
       {/* Filters */}
       <form
