@@ -5,12 +5,32 @@ import {
   WidgetSkeleton,
 } from "@/components/DashboardWidget";
 import { UpcomingComplianceWidget } from "@/components/widgets/UpcomingComplianceWidget";
+import { CashOutForecastWidget } from "@/components/widgets/CashOutForecastWidget";
+import { CalendarGrid } from "@/components/CalendarGrid";
 
-// Home page: unified calendar + dashboard widgets.
-// Calendar shell is still a placeholder — LED-29 ships the real grid.
-// Widgets stream in via Suspense so the page shell renders immediately.
+// Home page: unified calendar (LED-29) + dashboard widgets.
+// Calendar pulls from compliance_items + bills; more sources added as features ship.
 
-export default function Home() {
+type Search = { y?: string; m?: string };
+
+function parseMonth(params: Search): { year: number; month: number } {
+  const now = new Date();
+  const year = parseInt(params.y ?? "", 10);
+  const month = parseInt(params.m ?? "", 10);
+  if (!isNaN(year) && !isNaN(month) && month >= 1 && month <= 12) {
+    return { year, month };
+  }
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Search>;
+}) {
+  const params = await searchParams;
+  const { year, month } = parseMonth(params);
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <header className="mb-8">
@@ -21,30 +41,18 @@ export default function Home() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendar — takes 2/3 on desktop. Placeholder until LED-29. */}
-        <section className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-medium">Calendar</h2>
-            <div className="flex gap-1 text-xs">
-              <button className="px-3 py-1 rounded bg-zinc-800 text-zinc-300">
-                Month
-              </button>
-              <button className="px-3 py-1 rounded text-zinc-500 hover:text-zinc-300">
-                Week
-              </button>
-              <button className="px-3 py-1 rounded text-zinc-500 hover:text-zinc-300">
-                Agenda
-              </button>
-            </div>
-          </div>
-          <div className="h-96 flex items-center justify-center text-zinc-600 text-sm border border-dashed border-zinc-800 rounded text-center">
-            Calendar view coming in LED-29 — will show bills due,
-            <br />
-            compliance deadlines, contractor renewals, and meetings.
-          </div>
+        <section className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+          <Suspense
+            fallback={
+              <div className="h-96 flex items-center justify-center text-zinc-600 text-sm">
+                Loading calendar…
+              </div>
+            }
+          >
+            <CalendarGrid year={year} month={month} />
+          </Suspense>
         </section>
 
-        {/* Dashboard widgets — 1/3 column on desktop */}
         <aside className="space-y-6">
           <Suspense
             fallback={
@@ -56,17 +64,18 @@ export default function Home() {
             <UpcomingComplianceWidget />
           </Suspense>
 
-          {/* Placeholder widgets until their backing features land */}
-          <DashboardWidget title="Bills Due This Week">
-            <WidgetEmptyState>No bills yet (LED-17 builds this).</WidgetEmptyState>
-          </DashboardWidget>
-
-          <DashboardWidget title="Money Out — Next 30 Days">
-            <WidgetEmptyState>No bills tracked yet (LED-42).</WidgetEmptyState>
-          </DashboardWidget>
+          <Suspense
+            fallback={
+              <DashboardWidget title="Money Out — Next 30 Days">
+                <WidgetSkeleton />
+              </DashboardWidget>
+            }
+          >
+            <CashOutForecastWidget />
+          </Suspense>
 
           <DashboardWidget title="1099 Readiness">
-            <WidgetEmptyState>No contractors yet (LED-26).</WidgetEmptyState>
+            <WidgetEmptyState>No contractors yet (LED-26 + LED-41).</WidgetEmptyState>
           </DashboardWidget>
         </aside>
       </div>
