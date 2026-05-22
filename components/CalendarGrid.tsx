@@ -168,7 +168,7 @@ export async function CalendarGrid({ year, month }: Props) {
         <h2 className="text-lg font-medium">
           {monthName(month)} {year}
         </h2>
-        <div className="flex items-center gap-1">
+        <div className="print:hidden flex items-center gap-1">
           <Link
             href={navUrl(prevYear, prevMonth)}
             className="px-2 py-1 rounded text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"

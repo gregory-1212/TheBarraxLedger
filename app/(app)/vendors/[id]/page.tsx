@@ -80,7 +80,7 @@ export default async function VendorDetailPage({
       <header className="mb-6">
         <Link
           href="/vendors"
-          className="text-xs text-zinc-500 hover:text-zinc-300"
+          className="print:hidden text-xs text-zinc-500 hover:text-zinc-300"
         >
           ← Back to Vendors
         </Link>
@@ -110,7 +110,7 @@ export default async function VendorDetailPage({
           </div>
           <Link
             href={`/vendors/${vendor.id}/edit`}
-            className="shrink-0 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800"
+            className="print:hidden shrink-0 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800"
           >
             Edit
           </Link>

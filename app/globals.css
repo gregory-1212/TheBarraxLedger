@@ -24,3 +24,114 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ----------------------------------------------------------------------
+   Print stylesheet — flip dark UI to black-on-white for paper/PDF output.
+   Screen view is unchanged. Activates on Cmd+P / Ctrl+P, "Save as PDF",
+   and Puppeteer/Playwright's print media mode (used by LED-49 packet ZIP).
+   ---------------------------------------------------------------------- */
+@media print {
+  /* Force light color scheme regardless of OS preference */
+  :root {
+    color-scheme: light !important;
+    --background: #ffffff;
+    --foreground: #000000;
+  }
+
+  html, body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Universal dark-bg overrides */
+  [class*="bg-zinc-9"],
+  [class*="bg-zinc-8"],
+  [class*="bg-red-950"],
+  [class*="bg-amber-950"],
+  [class*="bg-orange-950"],
+  [class*="bg-emerald-950"],
+  [class*="bg-sky-950"],
+  [class*="bg-violet-950"] {
+    background: white !important;
+    background-color: white !important;
+  }
+
+  /* Universal text color overrides — zinc family → black */
+  .text-zinc-100,
+  .text-zinc-200,
+  .text-zinc-300,
+  .text-white {
+    color: black !important;
+  }
+  .text-zinc-400 { color: #333 !important; }
+  .text-zinc-500 { color: #555 !important; }
+  .text-zinc-600 { color: #777 !important; }
+
+  /* Severity text colors — darker, ink-friendly versions */
+  .text-red-200, .text-red-300, .text-red-50 { color: #b91c1c !important; }
+  .text-amber-200, .text-amber-300 { color: #a16207 !important; }
+  .text-orange-100, .text-orange-200, .text-orange-300, .text-orange-50 { color: #c2410c !important; }
+  .text-emerald-200, .text-emerald-300 { color: #15803d !important; }
+  .text-sky-200, .text-sky-300 { color: #0369a1 !important; }
+  .text-violet-200, .text-violet-300 { color: #6d28d9 !important; }
+
+  /* Borders need to be visible on white */
+  [class*="border-zinc-"] {
+    border-color: #d4d4d8 !important;
+  }
+  [class*="border-red-9"] { border-color: #b91c1c !important; }
+  [class*="border-amber-9"] { border-color: #a16207 !important; }
+  [class*="border-orange-9"] { border-color: #c2410c !important; }
+  [class*="border-emerald-9"] { border-color: #15803d !important; }
+  [class*="border-sky-9"] { border-color: #0369a1 !important; }
+
+  /* Calendar source-color left borders (these are LOAD-bearing for legibility) */
+  .border-l-violet-500 { border-left-color: #6d28d9 !important; }
+  .border-l-emerald-500 { border-left-color: #059669 !important; }
+
+  /* Strip hover effects in print */
+  *:hover {
+    background: inherit !important;
+  }
+
+  /* Tables — give them visible structure on white */
+  table {
+    border-collapse: collapse !important;
+  }
+  table thead {
+    background: #f4f4f5 !important;
+  }
+  table th,
+  table td {
+    border: 1px solid #d4d4d8 !important;
+  }
+
+  /* Hide interactive chrome that has no place on paper */
+  aside,                     /* the sidebar */
+  nav,                       /* any nav element */
+  form,                      /* filter forms */
+  button,                    /* all buttons */
+  .print\:hidden {           /* explicit per-element opt-out */
+    display: none !important;
+  }
+
+  /* Ensure links don't show URLs in print (default browser behavior is noisy) */
+  a {
+    color: black !important;
+    text-decoration: none !important;
+  }
+  a[href]::after {
+    content: none !important;
+  }
+
+  /* Sensible page margins + avoid orphan headings */
+  @page {
+    margin: 0.5in;
+  }
+  h1, h2, h3 {
+    break-after: avoid;
+  }
+  tr {
+    break-inside: avoid;
+  }
+}

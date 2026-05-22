@@ -95,14 +95,14 @@ export default async function VendorsPage({
         </div>
         <Link
           href="/vendors/new"
-          className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+          className="print:hidden rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
         >
           Add Vendor
         </Link>
       </header>
 
       {/* Filter toggle */}
-      <div className="flex items-center gap-3 mb-6 text-xs">
+      <div className="print:hidden flex items-center gap-3 mb-6 text-xs">
         <Link
           href={showInactive ? "/vendors" : "/vendors?show_inactive=1"}
           className="text-zinc-500 hover:text-zinc-300"

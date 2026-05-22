@@ -116,7 +116,7 @@ export default async function CompliancePage({
         </div>
         <Link
           href="/compliance/new"
-          className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+          className="print:hidden rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
         >
           Add Compliance Item
         </Link>
