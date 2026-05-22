@@ -11,6 +11,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const params = useSearchParams();
   const queryError = params.get("error");
+  const queryDetail = params.get("detail");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,7 +53,18 @@ function LoginForm() {
         )}
         {queryError === "auth_failed" && (
           <div className="mb-4 rounded-md border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-            Sign-in link expired or invalid. Request a new one.
+            <p>Sign-in link expired or invalid. Request a new one.</p>
+            {queryDetail && (
+              <p className="text-xs mt-1 text-red-300/80 font-mono break-all">
+                {queryDetail}
+              </p>
+            )}
+          </div>
+        )}
+        {queryError === "missing_token" && (
+          <div className="mb-4 rounded-md border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            Auth callback received no token. Check Supabase Auth settings —
+            project may be using Implicit grant flow instead of PKCE.
           </div>
         )}
         {queryError === "config_error" && (
