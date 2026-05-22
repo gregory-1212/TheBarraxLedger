@@ -55,6 +55,17 @@ function LoginForm() {
             Sign-in link expired or invalid. Request a new one.
           </div>
         )}
+        {queryError === "config_error" && (
+          <div className="mb-4 rounded-md border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            Server config error: Supabase env vars missing on Vercel. Check
+            project Settings → Environment Variables.
+          </div>
+        )}
+        {queryError === "auth_unavailable" && (
+          <div className="mb-4 rounded-md border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            Couldn&apos;t reach the auth service. Retry in a moment.
+          </div>
+        )}
 
         {sent ? (
           <div className="rounded-md border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-300">
