@@ -2,13 +2,14 @@ import Link from "next/link";
 
 // Left sidebar with the planned Ledger tabs. Each tab is just a link for now;
 // active-state styling and real content come later.
+// Order per Julie's frequency-of-use feedback (2026-05-22): most-used at top.
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: "▦" },
-  { href: "/compliance", label: "Compliance", icon: "⚖" },
   { href: "/bills", label: "Bills", icon: "$" },
-  { href: "/vendors", label: "Vendors", icon: "◌" },
   { href: "/receipts", label: "Receipts", icon: "❑" },
+  { href: "/compliance", label: "Compliance", icon: "⚖" },
   { href: "/reports", label: "Reports", icon: "▤" },
+  { href: "/vendors", label: "Vendors", icon: "◌" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 

@@ -53,17 +53,9 @@ export default async function Home({
           </Suspense>
         </section>
 
+        {/* Widget order per Julie's feedback (2026-05-22): money-flow widgets
+            on top, compliance after. */}
         <aside className="space-y-6">
-          <Suspense
-            fallback={
-              <DashboardWidget title="Compliance — next 30 days">
-                <WidgetSkeleton />
-              </DashboardWidget>
-            }
-          >
-            <UpcomingComplianceWidget />
-          </Suspense>
-
           <Suspense
             fallback={
               <DashboardWidget title="Money Out — Next 30 Days">
@@ -72,6 +64,16 @@ export default async function Home({
             }
           >
             <CashOutForecastWidget />
+          </Suspense>
+
+          <Suspense
+            fallback={
+              <DashboardWidget title="Compliance — next 30 days">
+                <WidgetSkeleton />
+              </DashboardWidget>
+            }
+          >
+            <UpcomingComplianceWidget />
           </Suspense>
 
           <DashboardWidget title="1099 Readiness">
