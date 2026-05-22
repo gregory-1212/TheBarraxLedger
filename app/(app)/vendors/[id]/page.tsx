@@ -46,6 +46,29 @@ const BUSINESS_CLASSIFICATION_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+function formatDateShort(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+type BillRow = {
+  id: string;
+  amount_cents: number;
+  amount_paid_cents: number | null;
+  due_date: string;
+  paid_date: string | null;
+  status: string;
+  reference: string | null;
+  expense_category: { name: string } | null;
+};
+
 export default async function VendorDetailPage({
   params,
 }: {
@@ -54,14 +77,46 @@ export default async function VendorDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: vendor, error } = await supabase
-    .from("vendors")
-    .select(
-      "id, name, dba, vendor_type, contact_name, contact_email, contact_phone, billing_address, payment_method, default_expense_category, is_1099_eligible, business_classification, w9_status, status, notes, created_at, updated_at",
-    )
-    .eq("id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
+  // Year boundaries for YTD calculation
+  const now = new Date();
+  const yearStart = `${now.getFullYear()}-01-01`;
+  const yearEnd = `${now.getFullYear()}-12-31`;
+
+  const [vendorResult, billsResult, ytdResult] = await Promise.all([
+    supabase
+      .from("vendors")
+      .select(
+        "id, name, dba, vendor_type, contact_name, contact_email, contact_phone, billing_address, payment_method, default_expense_category, is_1099_eligible, business_classification, w9_status, status, notes, created_at, updated_at",
+      )
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("bills")
+      .select(
+        "id, amount_cents, amount_paid_cents, due_date, paid_date, status, reference, expense_category:expense_categories(name)",
+      )
+      .eq("vendor_id", id)
+      .is("deleted_at", null)
+      .order("due_date", { ascending: false })
+      .limit(10),
+    supabase
+      .from("bills")
+      .select("amount_paid_cents")
+      .eq("vendor_id", id)
+      .is("deleted_at", null)
+      .not("paid_date", "is", null)
+      .gte("paid_date", yearStart)
+      .lte("paid_date", yearEnd),
+  ]);
+
+  const { data: vendor, error } = vendorResult;
+  const bills = (billsResult.data as unknown as BillRow[] | null) ?? [];
+  const ytdRows = (ytdResult.data ?? []) as { amount_paid_cents: number | null }[];
+  const ytdTotal = ytdRows.reduce(
+    (acc, r) => acc + (r.amount_paid_cents ?? 0),
+    0,
+  );
 
   if (error) {
     return (
@@ -116,6 +171,67 @@ export default async function VendorDetailPage({
           </Link>
         </div>
       </header>
+
+      {/* YTD + Recent Bills */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">
+            YTD spend ({now.getFullYear()})
+          </p>
+          <p className="text-2xl font-semibold text-zinc-100 mt-1 tabular-nums">
+            {formatDollars(ytdTotal)}
+          </p>
+          <p className="text-xs text-zinc-500 mt-1">
+            {ytdRows.length} paid bill{ytdRows.length === 1 ? "" : "s"} this year
+          </p>
+        </div>
+        <div className="md:col-span-2 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+            Recent bills
+          </p>
+          {bills.length === 0 ? (
+            <p className="text-sm text-zinc-600">No bills yet.</p>
+          ) : (
+            <ul className="divide-y divide-zinc-800 -my-2">
+              {bills.map((b) => {
+                const paid = !!b.paid_date;
+                return (
+                  <li key={b.id} className="py-2">
+                    <Link
+                      href={`/bills/${b.id}`}
+                      className="flex items-baseline justify-between gap-3 text-sm hover:bg-zinc-800/40 -mx-2 px-2 py-1 rounded transition-colors"
+                    >
+                      <span className="text-zinc-200 truncate">
+                        {b.expense_category?.name ?? "Uncategorized"}
+                        {b.reference && (
+                          <span className="text-zinc-500 text-xs ml-2">
+                            {b.reference}
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex items-baseline gap-3 shrink-0">
+                        <span
+                          className={
+                            "text-xs tabular-nums " +
+                            (paid ? "text-zinc-500" : "text-zinc-400")
+                          }
+                        >
+                          {paid && b.paid_date
+                            ? `paid ${formatDateShort(b.paid_date)}`
+                            : `due ${formatDateShort(b.due_date)}`}
+                        </span>
+                        <span className="text-zinc-100 tabular-nums w-20 text-right">
+                          {formatDollars(b.amount_cents)}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
 
       <div className="space-y-4 mb-6">
         {(vendor.contact_name ||
