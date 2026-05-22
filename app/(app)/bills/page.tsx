@@ -241,23 +241,30 @@ export default async function BillsPage({
                       {b.reference ?? ""}
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-100 tabular-nums">
-                      {formatDollars(b.amount_cents)}
+                      <Link
+                        href={`/bills/${b.id}`}
+                        className="hover:underline"
+                      >
+                        {formatDollars(b.amount_cents)}
+                      </Link>
                     </td>
                     <td
                       className={`px-4 py-3 text-right tabular-nums ${dueClasses(days, paid)}`}
                     >
-                      {paid && b.paid_date
-                        ? formatDate(b.paid_date)
-                        : formatDate(b.due_date)}
-                      {!paid && (
-                        <span className="block text-xs text-zinc-500">
-                          {days < 0
-                            ? `${Math.abs(days)}d overdue`
-                            : days === 0
-                              ? "today"
-                              : `in ${days}d`}
-                        </span>
-                      )}
+                      <Link href={`/bills/${b.id}`} className="hover:underline">
+                        {paid && b.paid_date
+                          ? formatDate(b.paid_date)
+                          : formatDate(b.due_date)}
+                        {!paid && (
+                          <span className="block text-xs text-zinc-500">
+                            {days < 0
+                              ? `${Math.abs(days)}d overdue`
+                              : days === 0
+                                ? "today"
+                                : `in ${days}d`}
+                          </span>
+                        )}
+                      </Link>
                     </td>
                   </tr>
                 );
