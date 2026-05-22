@@ -1,9 +1,46 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 
-// LED-15 (minimal): read-only vendor detail. Activity feed + edit + 1099
-// details (tax ID reveal, W-9 upload) deferred until LED-15 proper + LED-38/40.
+// LED-15: vendor detail with YTD spend, recent bills, W-9 status actions.
+// Activity feed + edit + tax ID reveal still deferred (separate tickets).
+
+// ── Server Actions ──────────────────────────────────────────────────────
+
+async function setW9Status(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  const status = String(formData.get("status"));
+
+  if (!["missing", "requested", "received", "verified"].includes(status)) {
+    throw new Error("Invalid W-9 status");
+  }
+
+  const update: Record<string, unknown> = { w9_status: status };
+  const now = new Date().toISOString();
+  if (status === "requested") update.w9_requested_at = now;
+  if (status === "received") update.w9_received_at = now;
+  if (status === "verified") update.w9_verified_at = now;
+  if (status === "missing") {
+    update.w9_requested_at = null;
+    update.w9_received_at = null;
+    update.w9_verified_at = null;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("vendors")
+    .update(update)
+    .eq("id", id);
+  if (error) throw new Error(`W-9 status update failed: ${error.message}`);
+
+  revalidatePath(`/vendors/${id}`);
+  revalidatePath("/vendors");
+}
+
+// ────────────────────────────────────────────────────────────────────────
+
 
 const VENDOR_TYPE_LABELS: Record<string, string> = {
   subscription: "Subscription",
@@ -320,6 +357,16 @@ export default async function VendorDetailPage({
                   </dd>
                 </div>
               )}
+              <div className="flex gap-2 items-center">
+                <dt className="text-zinc-500 w-32 shrink-0">W-9 status</dt>
+                <dd>
+                  <span
+                    className={`inline-block rounded-md border px-2 py-0.5 text-xs ${W9_STATUS_CLASSES[vendor.w9_status]}`}
+                  >
+                    {W9_STATUS_LABELS[vendor.w9_status] ?? vendor.w9_status}
+                  </span>
+                </dd>
+              </div>
               <div className="flex gap-2">
                 <dt className="text-zinc-500 w-32 shrink-0">Tax ID</dt>
                 <dd className="text-zinc-500 italic">
@@ -333,6 +380,75 @@ export default async function VendorDetailPage({
                 </dd>
               </div>
             </dl>
+
+            {/* W-9 status action bar (LED-43) */}
+            <div className="print:hidden flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-zinc-800">
+              {vendor.w9_status === "missing" && (
+                <>
+                  <form action={setW9Status}>
+                    <input type="hidden" name="id" value={vendor.id} />
+                    <input type="hidden" name="status" value="requested" />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800"
+                    >
+                      Mark W-9 requested
+                    </button>
+                  </form>
+                  <form action={setW9Status}>
+                    <input type="hidden" name="id" value={vendor.id} />
+                    <input type="hidden" name="status" value="received" />
+                    <button
+                      type="submit"
+                      className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-50 hover:bg-emerald-600"
+                    >
+                      Mark W-9 received
+                    </button>
+                  </form>
+                </>
+              )}
+              {vendor.w9_status === "requested" && (
+                <>
+                  <form action={setW9Status}>
+                    <input type="hidden" name="id" value={vendor.id} />
+                    <input type="hidden" name="status" value="received" />
+                    <button
+                      type="submit"
+                      className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-emerald-50 hover:bg-emerald-600"
+                    >
+                      Mark W-9 received
+                    </button>
+                  </form>
+                  <form action={setW9Status}>
+                    <input type="hidden" name="id" value={vendor.id} />
+                    <input type="hidden" name="status" value="missing" />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                      Reset to missing
+                    </button>
+                  </form>
+                </>
+              )}
+              {vendor.w9_status === "received" && (
+                <form action={setW9Status}>
+                  <input type="hidden" name="id" value={vendor.id} />
+                  <input type="hidden" name="status" value="missing" />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  >
+                    Reset W-9 (rare)
+                  </button>
+                </form>
+              )}
+              {vendor.w9_status === "verified" && (
+                <p className="text-xs text-zinc-500">
+                  TIN verified against IRS. No further action needed.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
