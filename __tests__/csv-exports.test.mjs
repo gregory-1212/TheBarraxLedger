@@ -15,6 +15,11 @@ import {
   centsToIrisAmount,
   IRIS_1099_NEC_COLUMNS,
 } from "../utils/iris-1099-nec.ts";
+import {
+  buildCategorizedExpenseCsv,
+  centsToCsvDollars,
+  CATEGORIZED_EXPENSE_COLUMNS,
+} from "../utils/categorized-expense-csv.ts";
 
 let failures = 0;
 function assert(cond, msg) {
@@ -184,6 +189,112 @@ assert(
   centsToIrisAmount(1_000_000_00) === "1000000.00",
   "$1M renders with no thousands separator",
 );
+
+// ==========================================================================
+// LED-32: categorized-expense CSV contract.
+// ==========================================================================
+
+section("[Categorized Expenses] encoding + header");
+const catRows = [
+  {
+    paidDate: "2026-03-15",
+    vendorName: "Acme, Inc.",
+    categoryName: "Software / SaaS",
+    taxTreatment: "deductible",
+    amountDollars: centsToCsvDollars(12999),
+    paymentMethod: "Visa ending 1234",
+    receipt: "in archive",
+    reference: "INV-001",
+    notes: 'Annual plan; "renew Q1"',
+  },
+  {
+    paidDate: "2026-04-01",
+    vendorName: "Eric Arnsberger",
+    categoryName: "Contractor Pay",
+    taxTreatment: "deductible",
+    amountDollars: centsToCsvDollars(280000),
+    paymentMethod: "ACH",
+    receipt: "",
+    reference: "",
+    notes: "Multi-line\nnote",
+  },
+  {
+    paidDate: "2026-05-23",
+    vendorName: "Mystery Refund",
+    categoryName: "Other",
+    taxTreatment: "deductible",
+    amountDollars: centsToCsvDollars(-2500), // negative (refund)
+    paymentMethod: "",
+    receipt: "",
+    reference: "",
+    notes: "",
+  },
+];
+const catCsv = buildCategorizedExpenseCsv(catRows);
+
+assert(!catCsv.startsWith("﻿"), "no UTF-8 BOM");
+assert(!/\r/.test(catCsv), "no CR characters");
+
+const catParsed = parseCsvAll(catCsv);
+const catHeader = catParsed[0];
+const catData = catParsed.slice(1);
+assert(
+  catHeader.length === CATEGORIZED_EXPENSE_COLUMNS.length,
+  `header has ${CATEGORIZED_EXPENSE_COLUMNS.length} columns (saw ${catHeader.length})`,
+);
+assert(
+  CATEGORIZED_EXPENSE_COLUMNS.every((c, i) => catHeader[i] === c),
+  "header column order matches CATEGORIZED_EXPENSE_COLUMNS",
+);
+assert(
+  catData.length === catRows.length,
+  `${catRows.length} data rows (saw ${catData.length})`,
+);
+
+section("[Categorized Expenses] date column ISO format");
+const dateIdx = CATEGORIZED_EXPENSE_COLUMNS.indexOf("Date Paid");
+for (let r = 0; r < catData.length; r++) {
+  assert(
+    /^\d{4}-\d{2}-\d{2}$/.test(catData[r][dateIdx]),
+    `row ${r + 1} date ${JSON.stringify(catData[r][dateIdx])} is ISO YYYY-MM-DD`,
+  );
+}
+
+section("[Categorized Expenses] amount column format");
+const amtIdx = CATEGORIZED_EXPENSE_COLUMNS.indexOf("Amount");
+const amtPattern = /^-?\d+\.\d{2}$/;
+for (let r = 0; r < catData.length; r++) {
+  const val = catData[r][amtIdx];
+  assert(
+    amtPattern.test(val),
+    `row ${r + 1} amount ${JSON.stringify(val)} matches /^-?\\d+\\.\\d{2}$/`,
+  );
+  assert(!val.includes("$"), `row ${r + 1} amount has no $`);
+  assert(!/,\d{3}/.test(val), `row ${r + 1} amount has no thousands separator`);
+  assert(
+    !/^\(.*\)$/.test(val),
+    `row ${r + 1} amount uses leading "-" for negatives`,
+  );
+}
+
+section("[Categorized Expenses] quoting + multi-row + round-trip");
+assert(/"Acme, Inc\."/.test(catCsv), "comma-bearing vendor is quoted");
+assert(
+  /"Annual plan; ""renew Q1"""/.test(catCsv),
+  "field with embedded quotes is wrapped + inner quotes doubled",
+);
+assert(
+  /"Multi-line\nnote"/.test(catCsv),
+  "multi-line note is wrapped in quotes",
+);
+const catRebuilt = catParsed.map(serializeCsvRow).join("\n");
+assert(catRebuilt === catCsv, "build → parse → build round-trips byte-for-byte");
+
+section("[Categorized Expenses] centsToCsvDollars edge cases");
+assert(centsToCsvDollars(0) === "0.00", "0 cents → 0.00");
+assert(centsToCsvDollars(99) === "0.99", "99 cents → 0.99");
+assert(centsToCsvDollars(1_000_000_00) === "1000000.00", "$1M no separator");
+assert(centsToCsvDollars(-2500) === "-25.00", "negative cents → -25.00");
 
 section("Result");
 if (failures > 0) {
