@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node __tests__/csv-exports.test.mjs"
+    "test": "node __tests__/csv-exports.test.mjs && node __tests__/date-ranges.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
