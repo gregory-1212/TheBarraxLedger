@@ -282,6 +282,16 @@ function TabAllView({ vendors }: { vendors: Vendor[] }) {
   );
 }
 
+// LED-28: filing-season default year. Past Jan 31 means we're filing for
+// the prior year; before that, the current year is still in progress (any
+// export then is mid-year audit/preview).
+function default1099ExportYear(today: Date = new Date()): number {
+  const yyyy = today.getFullYear();
+  const pastJan31 =
+    today.getMonth() > 0 || (today.getMonth() === 0 && today.getDate() > 31);
+  return pastJan31 ? yyyy - 1 : yyyy;
+}
+
 function Tab1099View({
   vendors,
   ytdByVendor,
@@ -300,6 +310,9 @@ function Tab1099View({
     );
   }
 
+  const exportYear = default1099ExportYear();
+  const previousYear = exportYear - 1;
+
   // Sort: W-9 status (missing → verified), then by name
   const sorted = [...vendors].sort((a, b) => {
     const wa = W9_SORT_ORDER[a.w9_status] ?? 99;
@@ -310,6 +323,16 @@ function Tab1099View({
 
   const total = sorted.length;
   const needW9 = sorted.filter((v) => v.w9_status === "missing").length;
+
+  // LED-27: vendors who are getting close to the $600 1099-NEC threshold but
+  // haven't crossed it yet — $500 ≤ YTD < $600. These need a W-9 on file
+  // before they tip over, so the alert is actionable (request the W-9 now).
+  const approachingThreshold = sorted
+    .filter((v) => {
+      const ytd = ytdByVendor.get(v.id) ?? 0;
+      return ytd >= 50000 && ytd < 60000;
+    })
+    .map((v) => ({ ...v, ytd: ytdByVendor.get(v.id) ?? 0 }));
 
   return (
     <>
@@ -328,6 +351,56 @@ function Tab1099View({
             ≥ $600.
           </p>
         )}
+      </div>
+
+      {approachingThreshold.length > 0 && (
+        <div className="rounded-lg border border-amber-900/40 bg-amber-950/20 p-4 mb-4">
+          <p className="text-sm text-amber-200 font-medium">
+            Approaching $600 1099 threshold
+          </p>
+          <p className="text-xs text-amber-300/70 mt-0.5">
+            {approachingThreshold.length === 1 ? "1 contractor is" : `${approachingThreshold.length} contractors are`}{" "}
+            within $100 of triggering a 1099-NEC. Make sure a W-9 is on file
+            before the next payment.
+          </p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {approachingThreshold.map((v) => (
+              <li key={v.id} className="flex items-baseline justify-between gap-3">
+                <Link
+                  href={`/vendors/${v.id}`}
+                  className="text-amber-100 hover:underline"
+                >
+                  {v.name}
+                </Link>
+                <span className="text-amber-200 tabular-nums">
+                  {formatDollars(v.ytd)} YTD
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="print:hidden flex items-center justify-between gap-3 mb-3">
+        <p className="text-xs text-zinc-500">
+          Contractors with YTD ≥ $600 appear in the IRIS 1099-NEC export.
+        </p>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/exports/1099-nec?year=${previousYear}`}
+            className="rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition-colors"
+            download
+          >
+            Export {previousYear}
+          </a>
+          <a
+            href={`/api/exports/1099-nec?year=${exportYear}`}
+            className="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-white transition-colors"
+            download
+          >
+            Export 1099-NEC ({exportYear})
+          </a>
+        </div>
       </div>
 
       <div className="rounded-lg border border-zinc-800 overflow-hidden">
