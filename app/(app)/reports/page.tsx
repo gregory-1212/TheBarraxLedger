@@ -39,11 +39,22 @@ export default async function ReportsPage({
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-        <p className="text-sm text-zinc-400 mt-1">
-          Year-end CSV exports for the CPA. Pick a tab.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
+          <p className="text-sm text-zinc-400 mt-1">
+            Year-end CSV exports for the CPA. Pick a tab, or grab the whole
+            packet.
+          </p>
+        </div>
+        {/* LED-49: Year-End Packet ZIP — bundles every CSV the CPA needs */}
+        <a
+          href={`/api/exports/year-end-packet?year=${year}`}
+          className="print:hidden rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors whitespace-nowrap"
+          download
+        >
+          Year-End Packet ({year})
+        </a>
       </header>
 
       <div className="print:hidden flex items-center gap-1 mb-6 border-b border-zinc-800">
