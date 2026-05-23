@@ -6,7 +6,8 @@
     "dev": "next dev --port 3020",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node __tests__/csv-exports.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
