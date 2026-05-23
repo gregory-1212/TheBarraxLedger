@@ -3,60 +3,28 @@ import {
   WidgetEmptyState,
 } from "@/components/DashboardWidget";
 import { createClient } from "@/utils/supabase/server";
+import { forecastBetween, isoDaysFromNow, isoToday } from "@/utils/forecast";
 
-// LED-42: Cash-out forecast tile. Shows $X across N bills due in the next 7
-// and 30 days. Excludes paid + draft bills.
+// LED-42: Cash-out forecast tile. Bills-only by design — sits beside the
+// Compliance widget which carries that source. The cross-source unified
+// tile lives above the calendar grid (LED-50, CalendarForecastTile).
 
 function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-function isoOffset(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 export async function CashOutForecastWidget() {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const in7 = isoOffset(7);
-  const in30 = isoOffset(30);
+  const today = isoToday();
+  const in7 = isoDaysFromNow(7);
+  const in30 = isoDaysFromNow(30);
 
-  const [next7Result, next30Result] = await Promise.all([
-    supabase
-      .from("bills")
-      .select("amount_cents")
-      .is("deleted_at", null)
-      .is("paid_date", null)
-      .neq("status", "draft")
-      .neq("status", "void")
-      .gte("due_date", today)
-      .lte("due_date", in7),
-    supabase
-      .from("bills")
-      .select("amount_cents")
-      .is("deleted_at", null)
-      .is("paid_date", null)
-      .neq("status", "draft")
-      .neq("status", "void")
-      .gte("due_date", today)
-      .lte("due_date", in30),
+  const [next7, next30] = await Promise.all([
+    forecastBetween(supabase, today, in7, { sources: ["bills"] }),
+    forecastBetween(supabase, today, in30, { sources: ["bills"] }),
   ]);
 
-  const next7 = next7Result.data ?? [];
-  const next30 = next30Result.data ?? [];
-
-  const next7Total = next7.reduce(
-    (acc, b) => acc + (b.amount_cents ?? 0),
-    0,
-  );
-  const next30Total = next30.reduce(
-    (acc, b) => acc + (b.amount_cents ?? 0),
-    0,
-  );
-
-  if (next30.length === 0) {
+  if (next30.itemCount === 0) {
     return (
       <DashboardWidget title="Money Out — Next 30 Days" href="/bills">
         <WidgetEmptyState>$0 due in the next 30 days.</WidgetEmptyState>
@@ -70,18 +38,18 @@ export async function CashOutForecastWidget() {
         <div>
           <p className="text-xs text-zinc-500">Next 7 days</p>
           <p className="text-lg font-semibold text-zinc-100 tabular-nums">
-            {formatDollars(next7Total)}{" "}
+            {formatDollars(next7.totalCents)}{" "}
             <span className="text-xs font-normal text-zinc-500">
-              ({next7.length} bill{next7.length === 1 ? "" : "s"})
+              ({next7.itemCount} bill{next7.itemCount === 1 ? "" : "s"})
             </span>
           </p>
         </div>
         <div className="pt-2 border-t border-zinc-800">
           <p className="text-xs text-zinc-500">Next 30 days</p>
           <p className="text-lg font-semibold text-zinc-100 tabular-nums">
-            {formatDollars(next30Total)}{" "}
+            {formatDollars(next30.totalCents)}{" "}
             <span className="text-xs font-normal text-zinc-500">
-              ({next30.length} bill{next30.length === 1 ? "" : "s"})
+              ({next30.itemCount} bill{next30.itemCount === 1 ? "" : "s"})
             </span>
           </p>
         </div>

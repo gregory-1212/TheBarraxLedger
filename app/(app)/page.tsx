@@ -7,6 +7,7 @@ import {
 import { UpcomingComplianceWidget } from "@/components/widgets/UpcomingComplianceWidget";
 import { CashOutForecastWidget } from "@/components/widgets/CashOutForecastWidget";
 import { CalendarGrid } from "@/components/CalendarGrid";
+import { CalendarForecastTile } from "@/components/CalendarForecastTile";
 
 // Home page: unified calendar (LED-29) + dashboard widgets.
 // Calendar pulls from compliance_items + bills; more sources added as features ship.
@@ -42,6 +43,10 @@ export default async function Home({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+          {/* LED-50: cross-source forecast tile above the month grid */}
+          <Suspense fallback={null}>
+            <CalendarForecastTile />
+          </Suspense>
           <Suspense
             fallback={
               <div className="h-96 flex items-center justify-center text-zinc-600 text-sm">
