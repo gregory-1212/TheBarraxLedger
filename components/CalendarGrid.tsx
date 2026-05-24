@@ -4,6 +4,7 @@ import {
   severityForDate,
   SEVERITY_BG_CLASSES,
 } from "@/utils/severity";
+import { CalendarSourceFilter } from "@/components/CalendarSourceFilter";
 
 // LED-29: Custom Tailwind month grid. No external calendar dep.
 // Renders a 6-row × 7-col grid showing the target month + padding from
@@ -233,6 +234,7 @@ export async function CalendarGrid({ year, month }: Props) {
                       <Link
                         key={e.id}
                         href={e.href}
+                        data-source={e.source}
                         className={
                           "block px-1.5 py-0.5 rounded text-[10px] truncate hover:opacity-80 " +
                           SOURCE_COLORS[e.source] +
@@ -256,17 +258,13 @@ export async function CalendarGrid({ year, month }: Props) {
           })}
         </div>
 
-        {/* Source legend */}
-        <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-sm bg-violet-500" />
-            Compliance
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
-            Bills
-          </span>
-        </div>
+        {/* LED-51: Source filter — legend + click-to-hide toggles, localStorage-persisted */}
+        <CalendarSourceFilter
+          counts={{
+            compliance: events.filter((e) => e.source === "compliance").length,
+            bill: events.filter((e) => e.source === "bill").length,
+          }}
+        />
       </div>
 
       {/* Mobile: agenda list */}
@@ -290,7 +288,7 @@ export async function CalendarGrid({ year, month }: Props) {
                   status: e.status,
                 });
                 return (
-                  <li key={e.id}>
+                  <li key={e.id} data-source={e.source}>
                     <Link
                       href={e.href}
                       className={
