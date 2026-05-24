@@ -2,9 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
+import {
+  uploadDocument,
+  softDeleteDocument,
+  listDocumentsForEntity,
+  type DocumentRow,
+} from "@/utils/documents";
 
 // LED-15: vendor detail with YTD spend, recent bills, W-9 status actions.
-// Activity feed + edit + tax ID reveal still deferred (separate tickets).
+// LED-40: named document slots (W-9 / Contract / COI) + Other section.
+// Activity feed + tax ID reveal still deferred (separate tickets).
 
 // ── Server Actions ──────────────────────────────────────────────────────
 
@@ -26,6 +33,52 @@ async function setVendorStatus(formData: FormData) {
 
   revalidatePath(`/vendors/${id}`);
   revalidatePath("/vendors");
+}
+
+// LED-40 server actions ─────────────────────────────────────────────────
+
+const VENDOR_DOC_TAGS = ["w9", "contract", "coi", "other"] as const;
+type VendorDocTag = (typeof VENDOR_DOC_TAGS)[number];
+
+async function uploadVendorDocument(formData: FormData) {
+  "use server";
+  const vendorId = String(formData.get("vendor_id"));
+  const tagRaw = String(formData.get("tag") ?? "other");
+  const tag: VendorDocTag = (VENDOR_DOC_TAGS as readonly string[]).includes(
+    tagRaw,
+  )
+    ? (tagRaw as VendorDocTag)
+    : "other";
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("No file uploaded");
+  }
+  // Conservative max — 20 MB. Most W-9/Contract/COI PDFs are < 1 MB.
+  // Storing huge files inflates costs; bigger ones should be split or rehosted.
+  const MAX_BYTES = 20 * 1024 * 1024;
+  if (file.size > MAX_BYTES) {
+    throw new Error(`File too large (max ${MAX_BYTES / 1024 / 1024} MB)`);
+  }
+
+  await uploadDocument({
+    body: file,
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+    entityType: "vendor",
+    entityId: vendorId,
+    tags: [tag],
+  });
+
+  revalidatePath(`/vendors/${vendorId}`);
+}
+
+async function deleteVendorDocument(formData: FormData) {
+  "use server";
+  const documentId = String(formData.get("document_id"));
+  const vendorId = String(formData.get("vendor_id"));
+  await softDeleteDocument(documentId);
+  revalidatePath(`/vendors/${vendorId}`);
 }
 
 async function setW9Status(formData: FormData) {
@@ -115,6 +168,80 @@ function formatDollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// LED-40: one named-slot row in the Documents section.
+function DocumentSlot({
+  vendorId,
+  tag,
+  label,
+  doc,
+  uploadAction,
+  deleteAction,
+}: {
+  vendorId: string;
+  tag: VendorDocTag;
+  label: string;
+  doc: DocumentRow | null;
+  uploadAction: (formData: FormData) => Promise<void>;
+  deleteAction: (formData: FormData) => Promise<void>;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-sm text-zinc-300 w-48 shrink-0">{label}</span>
+      {doc ? (
+        <span className="flex items-baseline justify-end gap-3 flex-1 min-w-0 text-sm">
+          <a
+            href={`/api/documents/${doc.id}/download`}
+            className="text-zinc-100 hover:underline truncate"
+          >
+            {doc.original_filename}
+          </a>
+          <span className="text-xs text-zinc-500 tabular-nums shrink-0">
+            {formatBytes(doc.size_bytes)}
+          </span>
+          <form action={deleteAction} className="print:hidden">
+            <input type="hidden" name="document_id" value={doc.id} />
+            <input type="hidden" name="vendor_id" value={vendorId} />
+            <button
+              type="submit"
+              className="text-xs text-zinc-500 hover:text-red-300"
+              title="Delete (upload a new file to replace)"
+            >
+              ×
+            </button>
+          </form>
+        </span>
+      ) : (
+        <form
+          action={uploadAction}
+          encType="multipart/form-data"
+          className="print:hidden flex items-center gap-2 flex-1 min-w-0 justify-end"
+        >
+          <input type="hidden" name="vendor_id" value={vendorId} />
+          <input type="hidden" name="tag" value={tag} />
+          <input
+            type="file"
+            name="file"
+            required
+            className="text-xs text-zinc-400 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200 hover:file:bg-zinc-700"
+          />
+          <button
+            type="submit"
+            className="rounded-md border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+          >
+            Upload
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 type BillRow = {
   id: string;
   amount_cents: number;
@@ -174,6 +301,35 @@ export default async function VendorDetailPage({
     (acc, r) => acc + (r.amount_paid_cents ?? 0),
     0,
   );
+
+  // LED-40: documents for this vendor, grouped by named slot.
+  let documents: DocumentRow[] = [];
+  if (vendor) {
+    try {
+      documents = await listDocumentsForEntity("vendor", vendor.id);
+    } catch {
+      // Fail soft — show empty slots rather than crashing the whole page.
+      documents = [];
+    }
+  }
+  // Newest doc per tag wins the slot; older docs with the same tag fall to "Other".
+  const slotDocs: Record<VendorDocTag, DocumentRow | null> = {
+    w9: null,
+    contract: null,
+    coi: null,
+    other: null,
+  };
+  const otherDocs: DocumentRow[] = [];
+  for (const d of documents) {
+    const tag = d.tags.find((t) =>
+      (VENDOR_DOC_TAGS as readonly string[]).includes(t),
+    ) as VendorDocTag | undefined;
+    if (tag && tag !== "other" && !slotDocs[tag]) {
+      slotDocs[tag] = d;
+    } else {
+      otherDocs.push(d);
+    }
+  }
 
   if (error) {
     return (
@@ -448,8 +604,13 @@ export default async function VendorDetailPage({
               </div>
               <div className="flex gap-2">
                 <dt className="text-zinc-500 w-32 shrink-0">W-9 file</dt>
-                <dd className="text-zinc-500 italic">
-                  Upload ships with LED-40
+                <dd className="text-zinc-300">
+                  {slotDocs.w9 ? (
+                    <span className="text-emerald-300">on file</span>
+                  ) : (
+                    <span className="text-zinc-500 italic">not uploaded</span>
+                  )}
+                  <span className="text-zinc-600"> · upload below</span>
                 </dd>
               </div>
             </dl>
@@ -524,6 +685,103 @@ export default async function VendorDetailPage({
             </div>
           </div>
         )}
+
+        {/* LED-40: Vendor documents — named slots + other uploads */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-3">
+            Documents
+          </p>
+          <div className="space-y-3">
+            {vendor.is_1099_eligible && (
+              <DocumentSlot
+                vendorId={vendor.id}
+                tag="w9"
+                label="W-9"
+                doc={slotDocs.w9}
+                uploadAction={uploadVendorDocument}
+                deleteAction={deleteVendorDocument}
+              />
+            )}
+            <DocumentSlot
+              vendorId={vendor.id}
+              tag="contract"
+              label="Contract"
+              doc={slotDocs.contract}
+              uploadAction={uploadVendorDocument}
+              deleteAction={deleteVendorDocument}
+            />
+            <DocumentSlot
+              vendorId={vendor.id}
+              tag="coi"
+              label="Certificate of Insurance"
+              doc={slotDocs.coi}
+              uploadAction={uploadVendorDocument}
+              deleteAction={deleteVendorDocument}
+            />
+          </div>
+
+          {/* Free-form "Other documents" — misc uploads outside the three named slots */}
+          <div className="mt-4 pt-4 border-t border-zinc-800">
+            <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+              Other documents
+            </p>
+            {otherDocs.length === 0 ? (
+              <p className="text-xs text-zinc-600">No other documents uploaded.</p>
+            ) : (
+              <ul className="space-y-1.5 mb-3">
+                {otherDocs.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-baseline justify-between gap-3 text-sm"
+                  >
+                    <a
+                      href={`/api/documents/${d.id}/download`}
+                      className="text-zinc-100 hover:underline truncate"
+                    >
+                      {d.original_filename}
+                    </a>
+                    <span className="flex items-center gap-3 shrink-0 text-xs text-zinc-500">
+                      <span className="tabular-nums">
+                        {formatBytes(d.size_bytes)}
+                      </span>
+                      <form action={deleteVendorDocument}>
+                        <input type="hidden" name="document_id" value={d.id} />
+                        <input type="hidden" name="vendor_id" value={vendor.id} />
+                        <button
+                          type="submit"
+                          className="print:hidden text-zinc-500 hover:text-red-300"
+                          title="Delete"
+                        >
+                          ×
+                        </button>
+                      </form>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              action={uploadVendorDocument}
+              encType="multipart/form-data"
+              className="print:hidden flex items-center gap-2 text-sm"
+            >
+              <input type="hidden" name="vendor_id" value={vendor.id} />
+              <input type="hidden" name="tag" value="other" />
+              <input
+                type="file"
+                name="file"
+                required
+                className="text-xs text-zinc-400 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200 hover:file:bg-zinc-700"
+              />
+              <button
+                type="submit"
+                className="rounded-md border border-zinc-800 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              >
+                Upload
+              </button>
+            </form>
+          </div>
+        </div>
 
         {vendor.notes && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
