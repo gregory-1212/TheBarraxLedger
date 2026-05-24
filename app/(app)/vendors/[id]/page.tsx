@@ -286,9 +286,19 @@ export default async function VendorDetailPage({
           </p>
         </div>
         <div className="md:col-span-2 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
-            Recent bills
-          </p>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">
+              Recent bills
+            </p>
+            {bills.length > 0 && (
+              <Link
+                href={`/bills?tab=all&vendor=${vendor.id}`}
+                className="print:hidden text-xs text-zinc-500 hover:text-zinc-200"
+              >
+                View all →
+              </Link>
+            )}
+          </div>
           {bills.length === 0 ? (
             <p className="text-sm text-zinc-600">No bills yet.</p>
           ) : (

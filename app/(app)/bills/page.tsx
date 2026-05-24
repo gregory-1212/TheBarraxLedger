@@ -25,6 +25,15 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+// LED-15: ?vendor=<uuid> filter, used by vendor detail's "View all bills →"
+// link. Doesn't change the existing tab semantics — just narrows every query
+// to a single vendor.
+type Search = { tab?: TabId; vendor?: string };
+
+function isUuid(s: string | undefined): s is string {
+  return !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 function formatDate(iso: string): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", {
     month: "short",
@@ -63,14 +72,28 @@ function rowClasses(daysAway: number, paid: boolean): string {
 export default async function BillsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: TabId }>;
+  searchParams: Promise<Search>;
 }) {
   const params = await searchParams;
   const tab: TabId =
     params.tab && TABS.some((t) => t.id === params.tab) ? params.tab : "due";
+  const vendorFilter = isUuid(params.vendor) ? params.vendor : null;
 
   const supabase = await createClient();
   const today = new Date().toISOString().slice(0, 10);
+
+  // If a vendor filter is active, fetch the vendor name for the banner.
+  // One small query; cheaper than nag-joining it to every bill row.
+  let filteredVendor: { id: string; name: string } | null = null;
+  if (vendorFilter) {
+    const { data: v } = await supabase
+      .from("vendors")
+      .select("id, name")
+      .eq("id", vendorFilter)
+      .is("deleted_at", null)
+      .maybeSingle();
+    filteredVendor = (v as { id: string; name: string } | null) ?? null;
+  }
 
   let query = supabase
     .from("bills")
@@ -78,6 +101,7 @@ export default async function BillsPage({
       "id, amount_cents, due_date, paid_date, status, reference, vendor:vendors(id, name), expense_category:expense_categories(name)",
     )
     .is("deleted_at", null);
+  if (vendorFilter) query = query.eq("vendor_id", vendorFilter);
 
   if (tab === "due") {
     query = query
@@ -107,30 +131,33 @@ export default async function BillsPage({
     .filter((b) => b.paid_date)
     .reduce((acc, b) => acc + b.amount_cents, 0);
 
+  // Tab counts respect the vendor filter so the badges match the visible list.
+  const countBuilder = () => {
+    let q = supabase
+      .from("bills")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null);
+    if (vendorFilter) q = q.eq("vendor_id", vendorFilter);
+    return q;
+  };
   const counts = await Promise.all([
-    supabase
-      .from("bills")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .is("paid_date", null)
-      .gte("due_date", today),
-    supabase
-      .from("bills")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .is("paid_date", null)
-      .lt("due_date", today),
-    supabase
-      .from("bills")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .not("paid_date", "is", null),
+    countBuilder().is("paid_date", null).gte("due_date", today),
+    countBuilder().is("paid_date", null).lt("due_date", today),
+    countBuilder().not("paid_date", "is", null),
   ]);
   const tabCounts: Record<TabId, number | null> = {
     due: counts[0].count ?? 0,
     overdue: counts[1].count ?? 0,
     paid: counts[2].count ?? 0,
     all: null,
+  };
+
+  // Helper for tab links: preserve vendor filter, swap tab.
+  const tabHref = (id: TabId): string => {
+    const parts: string[] = [];
+    if (id !== "due") parts.push(`tab=${id}`);
+    if (vendorFilter) parts.push(`vendor=${vendorFilter}`);
+    return parts.length === 0 ? "/bills" : `/bills?${parts.join("&")}`;
   };
 
   return (
@@ -158,7 +185,7 @@ export default async function BillsPage({
           return (
             <Link
               key={t.id}
-              href={t.id === "due" ? "/bills" : `/bills?tab=${t.id}`}
+              href={tabHref(t.id)}
               className={
                 "px-3 py-2 text-sm border-b-2 transition-colors -mb-px " +
                 (active
@@ -174,6 +201,26 @@ export default async function BillsPage({
           );
         })}
       </div>
+
+      {filteredVendor && (
+        <div className="print:hidden mb-4 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-sm">
+          <span className="text-zinc-400">
+            Filtered to vendor{" "}
+            <Link
+              href={`/vendors/${filteredVendor.id}`}
+              className="text-zinc-100 hover:underline"
+            >
+              {filteredVendor.name}
+            </Link>
+          </span>
+          <Link
+            href={tab === "due" ? "/bills" : `/bills?tab=${tab}`}
+            className="text-xs text-zinc-500 hover:text-zinc-200"
+          >
+            × clear
+          </Link>
+        </div>
+      )}
 
       {error ? (
         <div className="rounded-md border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm text-red-200">
