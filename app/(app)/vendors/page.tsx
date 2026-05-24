@@ -114,21 +114,47 @@ export default async function VendorsPage({
 
   // YTD spend per vendor (only on 1099 tab — query is heavier so skip for default)
   let ytdByVendor = new Map<string, number>();
+  // LED-45: delivery status for the filing year (prior cal year if past Jan 31).
+  let deliveryByVendor = new Map<
+    string,
+    { tax_year: number; method: string; delivered_at: string }
+  >();
+  let filingYearForBadge = new Date().getFullYear();
   if (tab === "1099" && vendors.length > 0) {
     const now = new Date();
     const yearStart = `${now.getFullYear()}-01-01`;
     const yearEnd = `${now.getFullYear()}-12-31`;
-    const { data: billsData } = await supabase
-      .from("bills")
-      .select("vendor_id, amount_paid_cents")
-      .in("vendor_id", vendors.map((v) => v.id))
-      .is("deleted_at", null)
-      .not("paid_date", "is", null)
-      .gte("paid_date", yearStart)
-      .lte("paid_date", yearEnd);
-    for (const b of (billsData ?? []) as Array<{ vendor_id: string; amount_paid_cents: number | null }>) {
+    const pastJan31 =
+      now.getMonth() > 0 || (now.getMonth() === 0 && now.getDate() > 31);
+    filingYearForBadge = pastJan31
+      ? now.getFullYear() - 1
+      : now.getFullYear();
+    const vendorIds = vendors.map((v) => v.id);
+    const [billsRes, delivRes] = await Promise.all([
+      supabase
+        .from("bills")
+        .select("vendor_id, amount_paid_cents")
+        .in("vendor_id", vendorIds)
+        .is("deleted_at", null)
+        .not("paid_date", "is", null)
+        .gte("paid_date", yearStart)
+        .lte("paid_date", yearEnd),
+      supabase
+        .from("form_1099_deliveries")
+        .select("vendor_id, tax_year, method, delivered_at")
+        .in("vendor_id", vendorIds)
+        .eq("tax_year", filingYearForBadge),
+    ]);
+    for (const b of (billsRes.data ?? []) as Array<{ vendor_id: string; amount_paid_cents: number | null }>) {
       const acc = ytdByVendor.get(b.vendor_id) ?? 0;
       ytdByVendor.set(b.vendor_id, acc + (b.amount_paid_cents ?? 0));
+    }
+    for (const d of (delivRes.data ?? []) as Array<{ vendor_id: string; tax_year: number; method: string; delivered_at: string }>) {
+      deliveryByVendor.set(d.vendor_id, {
+        tax_year: d.tax_year,
+        method: d.method,
+        delivered_at: d.delivered_at,
+      });
     }
   }
 
@@ -192,7 +218,12 @@ export default async function VendorsPage({
           Couldn&apos;t load vendors: {error.message}
         </div>
       ) : tab === "1099" ? (
-        <Tab1099View vendors={vendors} ytdByVendor={ytdByVendor} />
+        <Tab1099View
+          vendors={vendors}
+          ytdByVendor={ytdByVendor}
+          deliveryByVendor={deliveryByVendor}
+          filingYear={filingYearForBadge}
+        />
       ) : vendors.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-800 bg-zinc-950 px-6 py-12 text-center">
           <p className="text-sm text-zinc-400">No vendors yet.</p>
@@ -295,9 +326,16 @@ function default1099ExportYear(today: Date = new Date()): number {
 function Tab1099View({
   vendors,
   ytdByVendor,
+  deliveryByVendor,
+  filingYear,
 }: {
   vendors: Vendor[];
   ytdByVendor: Map<string, number>;
+  deliveryByVendor: Map<
+    string,
+    { tax_year: number; method: string; delivered_at: string }
+  >;
+  filingYear: number;
 }) {
   if (vendors.length === 0) {
     return (
@@ -460,6 +498,25 @@ function Tab1099View({
                       <span className="block text-xs text-amber-400">
                         ≥ $600, W-9 needed for 1099
                       </span>
+                    )}
+                    {/* LED-45: 1099-NEC delivery status for the filing year.
+                        Only meaningful when YTD ≥ $600 (1099 actually owed). */}
+                    {overIssuance && (
+                      (() => {
+                        const d = deliveryByVendor.get(v.id);
+                        return d ? (
+                          <span className="block text-xs text-emerald-400">
+                            ✓ 1099 sent {new Date(d.delivered_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ({d.method.replace("_", " ")})
+                          </span>
+                        ) : (
+                          <Link
+                            href={`/vendors/${v.id}#1099-nec-delivery`}
+                            className="block text-xs text-zinc-500 hover:text-zinc-300"
+                          >
+                            1099 ({filingYear}) not delivered →
+                          </Link>
+                        );
+                      })()
                     )}
                   </td>
                 </tr>

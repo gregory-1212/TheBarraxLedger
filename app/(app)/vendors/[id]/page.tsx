@@ -8,6 +8,7 @@ import {
   listDocumentsForEntity,
   type DocumentRow,
 } from "@/utils/documents";
+import { logAudit, AUDIT_ACTIONS } from "@/utils/audit-log";
 
 // LED-15: vendor detail with YTD spend, recent bills, W-9 status actions.
 // LED-40: named document slots (W-9 / Contract / COI) + Other section.
@@ -79,6 +80,81 @@ async function deleteVendorDocument(formData: FormData) {
   const vendorId = String(formData.get("vendor_id"));
   await softDeleteDocument(documentId);
   revalidatePath(`/vendors/${vendorId}`);
+}
+
+// LED-45 ──────────────────────────────────────────────────────────────────
+
+const DELIVERY_METHODS = ["email", "mail", "in_person"] as const;
+type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
+
+async function mark1099Delivered(formData: FormData) {
+  "use server";
+  const vendorId = String(formData.get("vendor_id"));
+  const taxYear = parseInt(String(formData.get("tax_year")), 10);
+  const methodRaw = String(formData.get("method"));
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (!Number.isInteger(taxYear) || taxYear < 2000 || taxYear > 2100) {
+    throw new Error("Invalid tax year");
+  }
+  if (!(DELIVERY_METHODS as readonly string[]).includes(methodRaw)) {
+    throw new Error("Invalid delivery method");
+  }
+  const method = methodRaw as DeliveryMethod;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Upsert — if a delivery already exists for (year, vendor), update it
+  // (lets the user correct a wrong method/notes without deleting first).
+  const { error } = await (supabase.from("form_1099_deliveries") as any)
+    .upsert(
+      {
+        tax_year: taxYear,
+        vendor_id: vendorId,
+        method,
+        notes: notes || null,
+        delivered_by: user?.id ?? null,
+        delivered_at: new Date().toISOString(),
+      },
+      { onConflict: "tax_year,vendor_id" },
+    );
+  if (error) throw new Error(`Mark delivered failed: ${error.message}`);
+
+  await logAudit({
+    action: AUDIT_ACTIONS.FORM_1099_DELIVERED,
+    entityType: "vendor",
+    entityId: vendorId,
+    metadata: { tax_year: taxYear, method, has_notes: notes.length > 0 },
+  });
+
+  revalidatePath(`/vendors/${vendorId}`);
+  revalidatePath("/vendors");
+}
+
+async function unmark1099Delivered(formData: FormData) {
+  "use server";
+  const deliveryId = String(formData.get("delivery_id"));
+  const vendorId = String(formData.get("vendor_id"));
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("form_1099_deliveries")
+    .delete()
+    .eq("id", deliveryId);
+  if (error) throw new Error(`Unmark delivered failed: ${error.message}`);
+
+  await logAudit({
+    action: AUDIT_ACTIONS.FORM_1099_DELIVERED,
+    entityType: "vendor",
+    entityId: vendorId,
+    metadata: { unmarked: true, delivery_id: deliveryId },
+  });
+
+  revalidatePath(`/vendors/${vendorId}`);
+  revalidatePath("/vendors");
 }
 
 async function setW9Status(formData: FormData) {
@@ -312,6 +388,29 @@ export default async function VendorDetailPage({
       documents = [];
     }
   }
+
+  // LED-45: 1099 delivery history for this vendor (most recent year first).
+  type Form1099Delivery = {
+    id: string;
+    tax_year: number;
+    delivered_at: string;
+    method: string;
+    notes: string | null;
+  };
+  let deliveries: Form1099Delivery[] = [];
+  if (vendor && vendor.is_1099_eligible) {
+    const { data: delivData } = await supabase
+      .from("form_1099_deliveries")
+      .select("id, tax_year, delivered_at, method, notes")
+      .eq("vendor_id", vendor.id)
+      .order("tax_year", { ascending: false });
+    deliveries = (delivData ?? []) as Form1099Delivery[];
+  }
+  // Filing year for the form default: prior calendar year past Jan 31, else current.
+  const today = new Date();
+  const _pastJan31 =
+    today.getMonth() > 0 || (today.getMonth() === 0 && today.getDate() > 31);
+  const filingYear = _pastJan31 ? today.getFullYear() - 1 : today.getFullYear();
   // Newest doc per tag wins the slot; older docs with the same tag fall to "Other".
   const slotDocs: Record<VendorDocTag, DocumentRow | null> = {
     w9: null,
@@ -782,6 +881,134 @@ export default async function VendorDetailPage({
             </form>
           </div>
         </div>
+
+        {/* LED-45: 1099-NEC delivery log — only for 1099-eligible vendors */}
+        {vendor.is_1099_eligible && (
+          <div
+            id="1099-nec-delivery"
+            className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 scroll-mt-8"
+          >
+            <p className="text-xs uppercase tracking-wide text-zinc-500 mb-3">
+              1099-NEC delivery
+            </p>
+
+            {(() => {
+              const filingDelivery = deliveries.find(
+                (d) => d.tax_year === filingYear,
+              );
+              if (filingDelivery) {
+                return (
+                  <div className="text-sm text-zinc-200 mb-4">
+                    <span className="text-emerald-300 font-medium">
+                      ✓ Delivered
+                    </span>{" "}
+                    <span className="text-zinc-400">for {filingYear}</span>
+                    <span className="text-zinc-500 text-xs ml-2">
+                      ·{" "}
+                      {new Date(filingDelivery.delivered_at).toLocaleDateString(
+                        "en-US",
+                        { month: "short", day: "numeric", year: "numeric" },
+                      )}{" "}
+                      · via {filingDelivery.method.replace("_", " ")}
+                    </span>
+                    {filingDelivery.notes && (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {filingDelivery.notes}
+                      </p>
+                    )}
+                    <form
+                      action={unmark1099Delivered}
+                      className="print:hidden inline-block mt-2"
+                    >
+                      <input type="hidden" name="delivery_id" value={filingDelivery.id} />
+                      <input type="hidden" name="vendor_id" value={vendor.id} />
+                      <button
+                        type="submit"
+                        className="text-xs text-zinc-500 hover:text-red-300"
+                      >
+                        × unmark
+                      </button>
+                    </form>
+                  </div>
+                );
+              }
+              return (
+                <p className="text-sm text-zinc-400 mb-4">
+                  <span className="text-amber-300">Not yet delivered</span> for {filingYear}.
+                </p>
+              );
+            })()}
+
+            <form
+              action={mark1099Delivered}
+              className="print:hidden grid grid-cols-1 md:grid-cols-[auto,1fr,auto] gap-2 items-end"
+            >
+              <input type="hidden" name="vendor_id" value={vendor.id} />
+              <input type="hidden" name="tax_year" value={filingYear} />
+              <div>
+                <label className="block text-xs uppercase tracking-wide text-zinc-500 mb-1">
+                  Method
+                </label>
+                <select
+                  name="method"
+                  defaultValue="email"
+                  className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+                >
+                  <option value="email">Email</option>
+                  <option value="mail">Mail</option>
+                  <option value="in_person">In person</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-wide text-zinc-500 mb-1">
+                  Notes (optional — e.g. tracking #, recipient confirmation)
+                </label>
+                <input
+                  type="text"
+                  name="notes"
+                  placeholder="USPS 9405..."
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600"
+                />
+              </div>
+              <button
+                type="submit"
+                className="rounded-md bg-zinc-100 px-4 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white"
+              >
+                Mark delivered ({filingYear})
+              </button>
+            </form>
+
+            {deliveries.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-zinc-800">
+                <p className="text-xs text-zinc-500 mb-2">History</p>
+                <ul className="space-y-1 text-sm">
+                  {deliveries.map((d) => (
+                    <li
+                      key={d.id}
+                      className="flex items-baseline justify-between gap-3 text-zinc-300"
+                    >
+                      <span className="tabular-nums">
+                        <span className="text-zinc-100 font-medium">
+                          {d.tax_year}
+                        </span>{" "}
+                        <span className="text-zinc-500 text-xs ml-1">
+                          · via {d.method.replace("_", " ")}
+                        </span>
+                      </span>
+                      <span className="text-xs text-zinc-500 tabular-nums">
+                        {new Date(d.delivered_at).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
 
         {vendor.notes && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
