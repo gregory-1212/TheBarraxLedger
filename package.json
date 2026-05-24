@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3020",
-    "build": "next build",
-    "start": "next start",
+    "dev": "./scripts/with-env.sh next dev --port 3020",
+    "build": "./scripts/with-env.sh next build",
+    "start": "./scripts/with-env.sh next start",
     "lint": "eslint",
-    "test": "node __tests__/csv-exports.test.mjs && node __tests__/date-ranges.test.mjs"
+    "test": "./scripts/with-env.sh node __tests__/csv-exports.test.mjs && ./scripts/with-env.sh node __tests__/date-ranges.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
