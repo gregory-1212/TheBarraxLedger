@@ -23,6 +23,10 @@ function defaultYear(today: Date = new Date()): number {
   return pastJan31 ? yyyy - 1 : yyyy;
 }
 
+function formatDollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -36,6 +40,64 @@ export default async function ReportsPage({
       ? yearParam
       : defaultYear();
   const categoryFilter = params.category ?? null;
+
+  // Year-End Packet preview — sanity check before downloading the ZIP.
+  // Two small queries (1099-eligible vendors crossing $600 + paid bills for
+  // the year); same filters the real packet generators use, so what's
+  // shown here matches what lands in the ZIP byte-for-byte.
+  const supabasePreview = await createClient();
+  const [contractorsRes, billsRes] = await Promise.all([
+    // 1099 contractors: 1099-eligible vendors with vendor_ytd_paid >= $600
+    // for the export year. Two-step: get the vendor list, then join YTD.
+    supabasePreview
+      .from("vendor_ytd_paid")
+      .select("vendor_id, paid_total_cents, vendor:vendors!inner(name, w9_status, is_1099_eligible, deleted_at)")
+      .eq("year", year)
+      .gte("paid_total_cents", 60000),
+    supabasePreview
+      .from("bills")
+      .select("amount_paid_cents")
+      .eq("status", "paid")
+      .is("deleted_at", null)
+      .not("paid_date", "is", null)
+      .gte("paid_date", `${year}-01-01`)
+      .lte("paid_date", `${year}-12-31`),
+  ]);
+  type PreviewVendor = { name: string; paidCents: number; w9OnFile: boolean };
+  type ContractorJoinRow = {
+    paid_total_cents: number | null;
+    vendor: { name: string; w9_status: string; is_1099_eligible: boolean; deleted_at: string | null } | { name: string; w9_status: string; is_1099_eligible: boolean; deleted_at: string | null }[] | null;
+  };
+  const packetContractors: PreviewVendor[] = (
+    (contractorsRes.data as unknown as ContractorJoinRow[] | null) ?? []
+  )
+    .map((r) => {
+      const v = Array.isArray(r.vendor) ? r.vendor[0] : r.vendor;
+      // Inner join filters non-vendors; we still need to skip non-1099 +
+      // soft-deleted (RLS doesn't filter those for views joined manually).
+      if (!v || !v.is_1099_eligible || v.deleted_at) return null;
+      return {
+        name: v.name,
+        paidCents: r.paid_total_cents ?? 0,
+        w9OnFile: v.w9_status === "received" || v.w9_status === "verified",
+      };
+    })
+    .filter((x): x is PreviewVendor => x !== null)
+    .sort((a, b) => b.paidCents - a.paidCents);
+  const packetContractorTotal = packetContractors.reduce(
+    (acc, c) => acc + c.paidCents,
+    0,
+  );
+  const packetContractorsMissingW9 = packetContractors.filter(
+    (c) => !c.w9OnFile,
+  ).length;
+
+  const packetBills = (billsRes.data ?? []) as Array<{ amount_paid_cents: number | null }>;
+  const packetBillCount = packetBills.length;
+  const packetBillTotal = packetBills.reduce(
+    (acc, b) => acc + (b.amount_paid_cents ?? 0),
+    0,
+  );
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -56,6 +118,80 @@ export default async function ReportsPage({
           Year-End Packet ({year})
         </a>
       </header>
+
+      {/* Year-End Packet preview — sanity check before download. Counts +
+          per-row breakdown match what's in the ZIP exactly (same filters
+          the packet generators use). Expand to see contractor list. */}
+      <details className="print:hidden mb-6 rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden group">
+        <summary className="cursor-pointer px-4 py-3 text-sm text-zinc-300 hover:bg-zinc-900 select-none flex items-center gap-3 flex-wrap">
+          <span className="text-zinc-500 text-xs">What's in the {year} packet:</span>
+          <span className="text-zinc-100 tabular-nums">
+            {packetContractors.length} contractor{packetContractors.length === 1 ? "" : "s"}
+          </span>
+          <span className="text-zinc-500">·</span>
+          <span className="text-zinc-100 tabular-nums">
+            {packetBillCount} paid bill{packetBillCount === 1 ? "" : "s"}
+          </span>
+          <span className="text-zinc-500">·</span>
+          <span className="text-zinc-100 tabular-nums">
+            {formatDollars(packetBillTotal)} total expenses
+          </span>
+          {packetContractorsMissingW9 > 0 && (
+            <>
+              <span className="text-zinc-500">·</span>
+              <span className="text-amber-300">
+                ⚠ {packetContractorsMissingW9} contractor{packetContractorsMissingW9 === 1 ? "" : "s"} missing W-9
+              </span>
+            </>
+          )}
+          <span className="ml-auto text-xs text-zinc-600 group-open:hidden">expand ↓</span>
+          <span className="ml-auto text-xs text-zinc-600 hidden group-open:inline">collapse ↑</span>
+        </summary>
+        <div className="px-4 py-3 border-t border-zinc-800">
+          {packetContractors.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              No 1099 contractors crossed the $600 threshold in {year}.
+            </p>
+          ) : (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">
+                1099-NEC recipients ({packetContractors.length})
+              </p>
+              <ul className="text-sm space-y-1">
+                {packetContractors.map((c) => (
+                  <li
+                    key={c.name}
+                    className="flex items-baseline justify-between gap-3"
+                  >
+                    <span className="text-zinc-200 truncate">
+                      {c.name}
+                      {!c.w9OnFile && (
+                        <span className="ml-2 text-xs text-amber-300">
+                          (no W-9)
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-zinc-300 tabular-nums shrink-0">
+                      {formatDollars(c.paidCents)}
+                    </span>
+                  </li>
+                ))}
+                <li className="flex items-baseline justify-between gap-3 pt-2 mt-2 border-t border-zinc-800 text-xs text-zinc-500">
+                  <span>Total nonemployee compensation</span>
+                  <span className="tabular-nums">
+                    {formatDollars(packetContractorTotal)}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          )}
+          <p className="text-xs text-zinc-600 mt-3">
+            Packet also includes: a README explaining what's in/not in, and
+            placeholders for receipts (LED-22), P&L (LED-33), and compliance
+            documents (LED-34) when those features ship.
+          </p>
+        </div>
+      </details>
 
       <div className="print:hidden flex items-center gap-1 mb-6 border-b border-zinc-800">
         {TABS.map((t) => {
