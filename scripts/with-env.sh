@@ -14,14 +14,15 @@
 
 set -e
 
-if [ ! -f ".env.local" ]; then
-  echo "with-env.sh: .env.local not found in $(pwd). Did you cd into the project root?" >&2
-  exit 1
+# .env.local is the Codespace-dev case (where we have to override inherited
+# CRM env vars). Vercel + other CI environments don't have it — env vars are
+# injected into process.env directly by the platform — so we skip sourcing
+# and just exec the command. Either way the wrapped command sees correct env.
+if [ -f ".env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env.local
+  set +a
 fi
-
-set -a
-# shellcheck disable=SC1091
-. ./.env.local
-set +a
 
 exec "$@"
