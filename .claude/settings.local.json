@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Bash(*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "TodoWrite",
+      "mcp__linear",
+      "mcp__linear__*"
+    ],
+    "deny": [
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf /*:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(git checkout -- .:*)",
+      "Bash(git branch -D:*)",
+      "Bash(node scripts/run-ddl.mjs *)"
+    ]
+  }
+}
