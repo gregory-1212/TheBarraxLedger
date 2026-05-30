@@ -9,6 +9,15 @@ import {
   type DocumentRow,
 } from "@/utils/documents";
 import { logAudit, AUDIT_ACTIONS } from "@/utils/audit-log";
+import { RevealTin } from "@/components/RevealTin";
+import {
+  encryptTaxId,
+  decryptTaxId,
+  maskTaxId,
+  normalizeTaxId,
+  isValidTaxId,
+} from "@/utils/tax-id";
+import { tinTypeForClassification } from "@/utils/iris-1099-nec";
 
 // LED-15: vendor detail with YTD spend, recent bills, W-9 status actions.
 // LED-40: named document slots (W-9 / Contract / COI) + Other section.
@@ -188,6 +197,55 @@ async function setW9Status(formData: FormData) {
   revalidatePath("/vendors");
 }
 
+// LED-38: Tax ID set / clear. Stored encrypted (utils/tax-id). Revealing the
+// full value is a separate, audit-logged endpoint; setting/clearing is logged
+// here too (TIN_UPDATE — no plaintext in the log).
+async function setVendorTaxId(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  const normalized = normalizeTaxId(String(formData.get("tax_id") ?? ""));
+  if (!isValidTaxId(normalized)) {
+    throw new Error("Tax ID must be 9 digits (SSN or EIN).");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("vendors")
+    .update({ tax_id_encrypted: encryptTaxId(normalized) })
+    .eq("id", id);
+  if (error) throw new Error(`Tax ID save failed: ${error.message}`);
+
+  await logAudit({
+    action: AUDIT_ACTIONS.TIN_UPDATE,
+    entityType: "vendor",
+    entityId: id,
+    metadata: { set: true },
+  });
+
+  revalidatePath(`/vendors/${id}`);
+}
+
+async function clearVendorTaxId(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("vendors")
+    .update({ tax_id_encrypted: null })
+    .eq("id", id);
+  if (error) throw new Error(`Tax ID remove failed: ${error.message}`);
+
+  await logAudit({
+    action: AUDIT_ACTIONS.TIN_UPDATE,
+    entityType: "vendor",
+    entityId: id,
+    metadata: { cleared: true },
+  });
+
+  revalidatePath(`/vendors/${id}`);
+}
+
 // ────────────────────────────────────────────────────────────────────────
 
 
@@ -346,7 +404,7 @@ export default async function VendorDetailPage({
     supabase
       .from("vendors")
       .select(
-        "id, name, dba, vendor_type, contact_name, contact_email, contact_phone, billing_address, payment_method, default_expense_category, is_1099_eligible, business_classification, w9_status, status, notes, created_at, updated_at",
+        "id, name, dba, vendor_type, contact_name, contact_email, contact_phone, billing_address, payment_method, default_expense_category, is_1099_eligible, business_classification, w9_status, status, notes, created_at, updated_at, tax_id_encrypted",
       )
       .eq("id", id)
       .is("deleted_at", null)
@@ -441,6 +499,23 @@ export default async function VendorDetailPage({
   }
 
   if (!vendor) notFound();
+
+  // LED-38: decrypt server-side ONLY to compute the masked display. The full
+  // TIN never leaves the server here — the client gets just the mask. The
+  // reveal endpoint is the only path that returns plaintext (and logs it).
+  let taxIdMasked: string | null = null;
+  const taxIdOnFile = !!vendor.tax_id_encrypted;
+  if (taxIdOnFile) {
+    try {
+      taxIdMasked = maskTaxId(
+        decryptTaxId(vendor.tax_id_encrypted as string),
+        tinTypeForClassification(vendor.business_classification),
+      );
+    } catch {
+      // Key mismatch or corrupt blob — show a neutral placeholder, never crash.
+      taxIdMasked = "•••••••••";
+    }
+  }
 
   // LED-44: Backup withholding advisory. Triggered when a 1099-eligible vendor
   // has NOT produced a W-9 AND we've already paid them >= $2,000 YTD (the
@@ -695,10 +770,14 @@ export default async function VendorDetailPage({
                   </span>
                 </dd>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <dt className="text-zinc-500 w-32 shrink-0">Tax ID</dt>
-                <dd className="text-zinc-500 italic">
-                  Reveal flow ships with LED-38
+                <dd className="text-zinc-200">
+                  {taxIdOnFile && taxIdMasked ? (
+                    <RevealTin vendorId={vendor.id} masked={taxIdMasked} />
+                  ) : (
+                    <span className="text-zinc-500 italic">Not on file</span>
+                  )}
                 </dd>
               </div>
               <div className="flex gap-2">
@@ -713,6 +792,52 @@ export default async function VendorDetailPage({
                 </dd>
               </div>
             </dl>
+
+            {/* LED-38: Tax ID entry / replace / remove */}
+            <div className="print:hidden mt-4 pt-4 border-t border-zinc-800">
+              <form
+                action={setVendorTaxId}
+                className="flex flex-wrap items-end gap-2"
+              >
+                <input type="hidden" name="id" value={vendor.id} />
+                <div>
+                  <label
+                    htmlFor="tax_id"
+                    className="block text-xs uppercase tracking-wide text-zinc-500 mb-1"
+                  >
+                    {taxIdOnFile ? "Replace tax ID" : "Add tax ID"} (SSN or EIN)
+                  </label>
+                  <input
+                    id="tax_id"
+                    name="tax_id"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="9 digits"
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 font-mono"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800"
+                >
+                  Save
+                </button>
+                {taxIdOnFile && (
+                  <button
+                    type="submit"
+                    formAction={clearVendorTaxId}
+                    className="text-xs text-zinc-500 hover:text-red-300"
+                  >
+                    Remove
+                  </button>
+                )}
+              </form>
+              <p className="text-xs text-zinc-600 mt-2">
+                Stored encrypted (AES-256-GCM). Revealing the full number is
+                logged to the audit trail.
+              </p>
+            </div>
 
             {/* W-9 status action bar (LED-43) */}
             <div className="print:hidden flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-zinc-800">

@@ -17,6 +17,7 @@ import {
   centsToCsvDollars,
   type CategorizedExpenseRow,
 } from "./categorized-expense-csv";
+import { decryptTaxId } from "./tax-id";
 
 // 1099-NEC issuance threshold: $600.
 const ISSUANCE_THRESHOLD_CENTS = 60000;
@@ -85,10 +86,24 @@ export async function generateIris1099NecCsv(
     if (ytdCents < ISSUANCE_THRESHOLD_CENTS) return [];
     void (!(v.w9_status === "received" || v.w9_status === "verified") &&
       ytdCents >= BACKUP_WITHHOLDING_THRESHOLD_CENTS);
+    // LED-38: decrypt the stored TIN for the filing CSV. A bad/forged blob on
+    // one vendor must not sink the whole export — leave that TIN blank for the
+    // CPA to fill and surface it in the logs.
+    let tin = "";
+    if (v.tax_id_encrypted) {
+      try {
+        tin = decryptTaxId(v.tax_id_encrypted as string);
+      } catch (e) {
+        console.error(
+          `[1099-export] TIN decrypt failed for vendor ${v.id}:`,
+          (e as Error).message,
+        );
+      }
+    }
     const recipient: IrisRecipient = {
       name: v.name,
       nameLine2: v.dba ?? "",
-      tin: "", // LED-38 unblocks
+      tin,
       tinType: tinTypeForClassification(v.business_classification),
       addressLine1: v.billing_address ?? "",
       addressLine2: "",

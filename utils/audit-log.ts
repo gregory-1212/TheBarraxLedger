@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 // Keep these as string literals (not an enum) so they're easy to grep.
 export const AUDIT_ACTIONS = {
   TIN_REVEAL: "tin_reveal",
+  TIN_UPDATE: "tin_update",
   DOCUMENT_DOWNLOAD: "document_download",
   DOCUMENT_DELETE: "document_delete",
   CSV_EXPORT: "csv_export",
