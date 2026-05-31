@@ -13,6 +13,8 @@ export const AUDIT_ACTIONS = {
   VENDOR_DELETE: "vendor_delete",
   COMPLIANCE_FILED: "compliance_filed",
   FORM_1099_DELIVERED: "form_1099_delivered",
+  RECEIPT_UPLOADED: "receipt_uploaded",
+  RECEIPT_CONFIRMED: "receipt_confirmed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS] | string;
