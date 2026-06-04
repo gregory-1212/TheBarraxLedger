@@ -200,7 +200,7 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
               <button
                 type="button"
                 onClick={() => { setNewVendorName(""); setShowNewVendor(true); }}
-                className="mt-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                className="mt-2 inline-flex items-center gap-1 rounded-md border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900 transition-colors"
               >
                 + Add a new vendor
               </button>
