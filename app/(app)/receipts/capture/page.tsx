@@ -41,8 +41,6 @@ export default function CaptureReceiptPage() {
     }
   }
 
-  const inputCls = "block w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-900 hover:file:bg-white";
-
   return (
     <div className="p-8 max-w-xl mx-auto">
       <header className="mb-6">
@@ -52,16 +50,29 @@ export default function CaptureReceiptPage() {
       </header>
 
       <div className="space-y-5 rounded-lg border border-zinc-800 bg-zinc-950 p-5">
-        <div>
-          <label className="block text-xs uppercase tracking-wide text-zinc-500 mb-2">Take a photo (phone)</label>
-          <input type="file" accept="image/*" capture="environment" onChange={(e) => onPick(e.target.files?.[0] ?? null)} className={inputCls} />
-        </div>
-
-        <div className="text-center text-xs text-zinc-600">— or —</div>
-
-        <div>
-          <label className="block text-xs uppercase tracking-wide text-zinc-500 mb-2">Upload a file (JPG, PNG, PDF)</label>
-          <input type="file" accept="image/*,application/pdf" onChange={(e) => onPick(e.target.files?.[0] ?? null)} className={inputCls} />
+        <div className="space-y-3">
+          {/* Take a Photo — opens the camera directly on a phone (capture attr).
+              On desktop there's no camera so it falls back to a file dialog. */}
+          <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-zinc-100 px-4 py-3.5 text-sm font-medium text-zinc-900 hover:bg-white transition-colors">
+            <span aria-hidden>📷</span> Take a Photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+          </label>
+          <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-zinc-700 px-4 py-3.5 text-sm font-medium text-zinc-200 hover:bg-zinc-900 transition-colors">
+            <span aria-hidden>🖼️</span> Choose Photo or File
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+          </label>
+          <p className="text-center text-[11px] text-zinc-500">JPG, PNG, or PDF</p>
         </div>
 
         {file && (
