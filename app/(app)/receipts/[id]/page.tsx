@@ -42,22 +42,20 @@ export default async function ReceiptDetailPage({ params }: { params: Promise<{ 
   // Possible-duplicate flag (same heuristic as the batch review): another
   // non-deleted receipt with the same total + date, vendor not clearly different.
   let possibleDuplicate: string | null = null;
-  if (receipt.total_cents != null && receipt.receipt_date) {
+  if (receipt.total_cents != null) {
     const { data: dups } = await supabase
       .from("receipts")
-      .select("id, vendor_id, status")
+      .select("id, vendor_id, receipt_date, status")
       .eq("total_cents", receipt.total_cents)
-      .eq("receipt_date", receipt.receipt_date)
       .is("deleted_at", null)
       .neq("id", receipt.id);
-    const match = ((dups as { id: string; vendor_id: string | null; status: string }[] | null) ?? []).find(
-      (d) => !(receipt.vendor_id && d.vendor_id && receipt.vendor_id !== d.vendor_id),
-    );
-    if (match) {
-      possibleDuplicate =
-        match.status === "confirmed"
-          ? "Same date & amount as a receipt already in your books"
-          : "Same date & amount as another receipt";
+    for (const d of ((dups as { id: string; vendor_id: string | null; receipt_date: string | null; status: string }[] | null) ?? [])) {
+      const sameDate = !!receipt.receipt_date && d.receipt_date === receipt.receipt_date;
+      const clearlyDiffVendor = !!(receipt.vendor_id && d.vendor_id && receipt.vendor_id !== d.vendor_id);
+      const sameVendor = !!(receipt.vendor_id && d.vendor_id && receipt.vendor_id === d.vendor_id);
+      const where = d.status === "confirmed" ? "a receipt already in your books" : "another receipt";
+      if (sameDate && !clearlyDiffVendor) { possibleDuplicate = `Same date & amount as ${where}`; break; }
+      if (sameVendor) { possibleDuplicate = `Same vendor & amount as ${where}`; break; }
     }
   }
 

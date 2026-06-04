@@ -58,32 +58,32 @@ export default async function ReceiptsReviewPage() {
     }
   }
 
-  // Possible-duplicate flag (Greg's heuristic: same vendor + day + amount). Fetch
-  // only receipts whose amount AND date are among the pending set — the only
-  // candidates — then suppress the flag when both have a vendor assigned and they
-  // clearly differ. A heads-up, never a block (two same-amount buys in a day happen).
+  // Possible-duplicate flag. A receipt is flagged when another non-deleted receipt
+  // shares the same AMOUNT and either (a) the same date (vendors not clearly
+  // different) or (b) the same vendor — the latter catches a re-scan of the same
+  // receipt even when OCR reads the date slightly differently. Candidates are
+  // bounded to receipts with a matching amount. Heads-up only, never a block.
   const totals = [...new Set(receipts.map((r) => r.total_cents).filter((v): v is number => v != null))];
-  const dates = [...new Set(receipts.map((r) => r.receipt_date).filter((v): v is string => !!v))];
   let candidates: { id: string; total_cents: number | null; receipt_date: string | null; vendor_id: string | null; status: string }[] = [];
-  if (totals.length > 0 && dates.length > 0) {
+  if (totals.length > 0) {
     const { data } = await supabase
       .from("receipts")
       .select("id, total_cents, receipt_date, vendor_id, status")
       .is("deleted_at", null)
-      .in("total_cents", totals)
-      .in("receipt_date", dates);
+      .in("total_cents", totals);
     candidates = (data as typeof candidates | null) ?? [];
   }
 
   function duplicateNote(r: RawReceipt): string | null {
-    if (r.total_cents == null || !r.receipt_date) return null;
+    if (r.total_cents == null) return null;
     for (const c of candidates) {
-      if (c.id === r.id) continue;
-      if (c.total_cents !== r.total_cents || c.receipt_date !== r.receipt_date) continue;
-      if (r.vendor_id && c.vendor_id && r.vendor_id !== c.vendor_id) continue; // clearly different vendor
-      return c.status === "confirmed"
-        ? "Same date & amount as a receipt already in your books"
-        : "Same date & amount as another receipt here";
+      if (c.id === r.id || c.total_cents !== r.total_cents) continue;
+      const sameDate = !!r.receipt_date && c.receipt_date === r.receipt_date;
+      const clearlyDiffVendor = !!(r.vendor_id && c.vendor_id && r.vendor_id !== c.vendor_id);
+      const sameVendor = !!(r.vendor_id && c.vendor_id && r.vendor_id === c.vendor_id);
+      const where = c.status === "confirmed" ? "a receipt already in your books" : "another receipt here";
+      if (sameDate && !clearlyDiffVendor) return `Same date & amount as ${where}`;
+      if (sameVendor) return `Same vendor & amount as ${where}`;
     }
     return null;
   }
