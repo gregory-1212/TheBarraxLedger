@@ -14,6 +14,7 @@ type Item = {
   ocrFailed: boolean;
   thumbUrl: string | null;
   canApprove: boolean;
+  possibleDuplicate: string | null;
 };
 
 function fmtDate(iso: string | null): string {
@@ -98,6 +99,9 @@ export default function ReviewList({ items }: { items: Item[] }) {
               {fmtMoney(r.totalCents)} · {fmtDate(r.date)}
               {r.categoryName ? ` · ${r.categoryName}` : ""}
             </div>
+            {r.possibleDuplicate && (
+              <p className="mt-1 text-[11px] text-amber-300">⚠ Possible duplicate — {r.possibleDuplicate}</p>
+            )}
             {errors[r.id] && <p className="mt-1 text-xs text-red-300">{errors[r.id]}</p>}
           </div>
 

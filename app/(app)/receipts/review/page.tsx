@@ -11,6 +11,7 @@ const MAX = 50; // cap the load; a backlog beyond this drains as earlier ones cl
 
 type RawReceipt = {
   id: string;
+  vendor_id: string | null;
   expense_category_id: string | null;
   receipt_date: string | null;
   total_cents: number | null;
@@ -26,7 +27,7 @@ export default async function ReceiptsReviewPage() {
   const { data: rows } = await supabase
     .from("receipts")
     .select(
-      "id, expense_category_id, receipt_date, total_cents, ocr_status, ocr_data, vendor:vendors(name), expense_category:expense_categories(name)",
+      "id, vendor_id, expense_category_id, receipt_date, total_cents, ocr_status, ocr_data, vendor:vendors(name), expense_category:expense_categories(name)",
     )
     .eq("status", "pending")
     .is("deleted_at", null)
@@ -57,6 +58,36 @@ export default async function ReceiptsReviewPage() {
     }
   }
 
+  // Possible-duplicate flag (Greg's heuristic: same vendor + day + amount). Fetch
+  // only receipts whose amount AND date are among the pending set — the only
+  // candidates — then suppress the flag when both have a vendor assigned and they
+  // clearly differ. A heads-up, never a block (two same-amount buys in a day happen).
+  const totals = [...new Set(receipts.map((r) => r.total_cents).filter((v): v is number => v != null))];
+  const dates = [...new Set(receipts.map((r) => r.receipt_date).filter((v): v is string => !!v))];
+  let candidates: { id: string; total_cents: number | null; receipt_date: string | null; vendor_id: string | null; status: string }[] = [];
+  if (totals.length > 0 && dates.length > 0) {
+    const { data } = await supabase
+      .from("receipts")
+      .select("id, total_cents, receipt_date, vendor_id, status")
+      .is("deleted_at", null)
+      .in("total_cents", totals)
+      .in("receipt_date", dates);
+    candidates = (data as typeof candidates | null) ?? [];
+  }
+
+  function duplicateNote(r: RawReceipt): string | null {
+    if (r.total_cents == null || !r.receipt_date) return null;
+    for (const c of candidates) {
+      if (c.id === r.id) continue;
+      if (c.total_cents !== r.total_cents || c.receipt_date !== r.receipt_date) continue;
+      if (r.vendor_id && c.vendor_id && r.vendor_id !== c.vendor_id) continue; // clearly different vendor
+      return c.status === "confirmed"
+        ? "Same date & amount as a receipt already in your books"
+        : "Same date & amount as another receipt here";
+    }
+    return null;
+  }
+
   const items = receipts.map((r) => {
     const conf = (r.ocr_data?.confidence ?? {}) as Record<string, number>;
     // "check this" flag: a key money field the AI read but with low confidence.
@@ -75,6 +106,7 @@ export default async function ReceiptsReviewPage() {
       ocrFailed: r.ocr_status === "failed" || r.ocr_status === "skipped",
       thumbUrl: thumbs.get(r.id) ?? null,
       canApprove: r.total_cents != null && !!r.receipt_date,
+      possibleDuplicate: duplicateNote(r),
     };
   });
 
