@@ -21,7 +21,7 @@ const SECTIONS: Section[] = [
     href: "/settings/categories",
     title: "Expense categories",
     description: "Edit the categories used to tag bills + receipts.",
-    enabled: false,
+    enabled: true,
   },
   {
     href: "/settings/reminders",
