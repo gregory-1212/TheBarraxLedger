@@ -102,6 +102,14 @@ The Codespace's auto-injected `GITHUB_TOKEN` is scoped to the parent repo (TheBa
 - Uses `@supabase/ssr` for App Router auth/session handling
 - Tailwind v4 (CSS-first config, classes used in JSX the normal way)
 - DDL migrations: `node scripts/run-ddl.mjs supabase/migrations/<file>.sql` — connects via the IPv4 pooler (`aws-1-us-east-1.pooler.supabase.com:5432`) since the direct host is IPv6-only and Codespaces can't reach it. Reads `.env.local` itself; doesn't need the wrapper.
+- **New-table Data API grants (LED-60, deadline 2026-10-30):** Supabase is removing automatic Data API exposure for `public` tables. **Existing tables are grandfathered forever — no action.** But every NEW table created after 2026-10-30 needs explicit grants or it's invisible to PostgREST, supabase-js, AND the server-side `service_role` client. The Ledger is a back-office tool with no public/anon surface, so **skip the `anon` grant** (unlike the CRM, which has a few public-read tables). Add this to every new-table migration going forward, in the same migration as the RLS + policies:
+
+  ```sql
+  grant select, insert, update, delete on public.your_table to authenticated;
+  grant select, insert, update, delete on public.your_table to service_role;
+  ```
+
+  Do NOT run Supabase's "opt-in early" `alter default privileges ... revoke` script on the live DB — let Supabase enforce on the deadline. `migration 013 (bill_templates)` is the reference example. See [Supabase changelog](https://github.com/orgs/supabase/discussions/45329).
 - Documents archive: `utils/documents.ts` provides `uploadDocument` / `getSignedUrl` / `softDeleteDocument` / `listDocumentsForEntity`. Polymorphic via `entity_type` + `entity_id`. Used by W-9/Contract/COI vendor slots (LED-40), receipts (when LED-22 ships), and compliance attachments.
 - CSV exports: pure builders in `utils/iris-1099-nec.ts` + `utils/categorized-expense-csv.ts`; data fetchers + generators in `utils/year-end-csv-generators.ts`; routes in `app/api/exports/*` are thin auth+audit shells. Format invariants pinned by `__tests__/csv-exports.test.mjs` (runs via `npm test`, plain Node + `--experimental-strip-types`).
 - Forecast helper: `utils/forecast.ts` `forecastBetween(supabase, start, end, {sources?})` — cross-source money-out aggregation used by the home calendar tile (LED-50) + bills sidebar widget.
