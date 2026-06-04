@@ -3,6 +3,7 @@ import { createClient } from "@/utils/supabase/server";
 import { uploadDocument } from "@/utils/documents";
 import { logAudit, AUDIT_ACTIONS } from "@/utils/audit-log";
 import { extractReceiptData, isSupportedOcrType } from "@/utils/ocr";
+import { resolveVendorId } from "@/utils/find-similar-vendors";
 
 // LED-22/23: POST /api/receipts/upload (multipart/form-data: file, notes?)
 //
@@ -85,6 +86,13 @@ export async function POST(request: NextRequest) {
     patch.total_cents = d.totalCents;
     patch.tax_cents = d.taxCents;
     patch.payment_method = d.paymentMethod;
+    // If the OCR'd vendor name confidently matches an existing vendor, pre-assign
+    // it — so a repeat vendor (e.g. a 2nd Chipotle receipt) comes in already tagged
+    // instead of prompting to create a duplicate.
+    if (d.vendorName) {
+      const vid = await resolveVendorId(supabase, d.vendorName);
+      if (vid) patch.vendor_id = vid;
+    }
   } else if (ocr.skipped) {
     patch.ocr_status = "skipped";
     patch.ocr_error = ocr.reason;

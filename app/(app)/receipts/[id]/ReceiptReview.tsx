@@ -24,6 +24,8 @@ interface Props {
   fileMime: string | null;
   vendors: { id: string; name: string }[];
   categories: { id: string; name: string }[];
+  possibleDuplicate: string | null;
+  suggestedVendor: { id: string; name: string } | null;
 }
 
 const centsToStr = (c: number | null): string => (c == null ? "" : (c / 100).toFixed(2));
@@ -42,7 +44,7 @@ function Conf({ c }: { c: number | undefined }) {
   return <span className={`ml-2 text-[10px] ${color}`}>OCR {pct}%</span>;
 }
 
-export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, categories }: Props) {
+export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, categories, possibleDuplicate, suggestedVendor }: Props) {
   const router = useRouter();
   const conf = receipt.ocr_data?.confidence ?? {};
 
@@ -163,6 +165,12 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
         </span>
       </div>
 
+      {possibleDuplicate && (
+        <div className="mb-4 rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-200">
+          ⚠ Possible duplicate — {possibleDuplicate}. Check before approving.
+        </div>
+      )}
+
       <div className="grid gap-6 md:grid-cols-2">
         {/* Image / file */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
@@ -195,6 +203,22 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
               <option value="">— select vendor —</option>
               {vendorList.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
+
+            {!vendorId && suggestedVendor && (
+              <div className="mt-2 flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+                <span className="min-w-0 flex-1 text-xs text-zinc-300">
+                  Looks like <span className="font-medium text-zinc-100">{suggestedVendor.name}</span>
+                  {ocrSuggestedVendor ? ` (OCR read “${ocrSuggestedVendor}”)` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setVendorId(suggestedVendor.id)}
+                  className="shrink-0 rounded-md bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+                >
+                  Use
+                </button>
+              </div>
+            )}
 
             {!showNewVendor ? (
               <button
@@ -231,7 +255,7 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
               </div>
             )}
 
-            {ocrSuggestedVendor && !vendorId && !showNewVendor && (
+            {ocrSuggestedVendor && !vendorId && !showNewVendor && !suggestedVendor && (
               <p className="mt-1 text-[11px] text-zinc-500">
                 OCR read: &ldquo;{ocrSuggestedVendor}&rdquo; — pick it above, or{" "}
                 <button

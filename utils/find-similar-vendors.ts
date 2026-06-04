@@ -40,3 +40,20 @@ export async function findSimilarVendors(
 
   return (data ?? []) as SimilarVendor[];
 }
+
+// Resolve an OCR'd vendor string to an existing vendor_id ONLY when the match is
+// confident enough to auto-assign (default 0.85 — essentially the same name, e.g.
+// "Chipotle" == "CHIPOTLE"). Returns null on no confident match or any RPC error
+// (never throws — a matching hiccup must not break the upload/confirm path).
+export async function resolveVendorId(
+  supabase: SupabaseClient,
+  name: string,
+  minSimilarity = 0.85,
+): Promise<string | null> {
+  try {
+    const matches = await findSimilarVendors(supabase, name, { threshold: minSimilarity, maxResults: 1 });
+    return matches.length > 0 ? matches[0].vendor_id : null;
+  } catch {
+    return null;
+  }
+}
