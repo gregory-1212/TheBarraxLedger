@@ -10,6 +10,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Exempt /api/cron: Vercel's scheduler calls these with a CRON_SECRET bearer
+    // and NO Supabase session cookie, so running them through the session proxy
+    // 307s them to /login and the handler never executes. The cron routes do
+    // their own CRON_SECRET auth, so they must bypass this proxy entirely.
+    "/((?!api/cron|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
