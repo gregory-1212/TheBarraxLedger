@@ -68,9 +68,16 @@ export default async function ReceiptsPage({ searchParams }: { searchParams: Pro
           <h1 className="text-2xl font-semibold tracking-tight">Receipts</h1>
           <p className="text-sm text-zinc-400 mt-1">Snap a photo — OCR pulls the vendor, date, and total for you to confirm.</p>
         </div>
-        <Link href="/receipts/capture" className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors">
-          Add Receipt
-        </Link>
+        <div className="flex items-center gap-2">
+          {(tabCounts.pending ?? 0) > 0 && (
+            <Link href="/receipts/review" className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-900 transition-colors">
+              Review {tabCounts.pending}
+            </Link>
+          )}
+          <Link href="/receipts/capture" className="rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors">
+            Add Receipts
+          </Link>
+        </div>
       </header>
 
       <div className="flex items-center gap-1 mb-4 border-b border-zinc-800">

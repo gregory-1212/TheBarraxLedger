@@ -121,6 +121,37 @@ export async function getSignedUrl(documentId: string, ttlSeconds = 300): Promis
   return data.signedUrl;
 }
 
+// Batch signed URLs for INLINE display (review-list thumbnails). Unlike
+// getSignedUrl, this writes NO audit row and uses no forced-download disposition
+// — so opening a list of N receipts doesn't flood the audit log with downloads
+// or try to download N files. Returns a Map of documentId -> signed URL.
+export async function createInlineSignedUrls(
+  documentIds: string[],
+  ttlSeconds = 600,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (documentIds.length === 0) return out;
+
+  const supabase = await createClient();
+  const { data: docs } = await supabase
+    .from("documents")
+    .select("id, storage_path")
+    .in("id", documentIds)
+    .is("deleted_at", null);
+  if (!docs || docs.length === 0) return out;
+
+  const { data: signed } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(docs.map((d) => d.storage_path), ttlSeconds);
+  const urlByPath = new Map((signed ?? []).map((s) => [s.path, s.signedUrl]));
+
+  for (const d of docs) {
+    const url = urlByPath.get(d.storage_path);
+    if (url) out.set(d.id, url);
+  }
+  return out;
+}
+
 export async function softDeleteDocument(documentId: string): Promise<void> {
   const supabase = await createClient();
 

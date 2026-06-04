@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const action = body?.action;
 
   const { data: receipt } = await supabase
-    .from("receipts").select("id, ocr_attempts").eq("id", id).is("deleted_at", null).maybeSingle();
+    .from("receipts").select("id, ocr_attempts, status, total_cents, receipt_date").eq("id", id).is("deleted_at", null).maybeSingle();
   if (!receipt) return NextResponse.json({ error: "receipt not found" }, { status: 404 });
 
   // ── Soft-delete the receipt + its stored photo ──
@@ -136,14 +136,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if ("paymentMethod" in o) patch.payment_method = typeof o.paymentMethod === "string" ? o.paymentMethod : null;
     if ("notes" in o) patch.notes = typeof o.notes === "string" ? o.notes : null;
 
+    // Money-safety guard: a receipt can't be confirmed without at least a total
+    // and a date (the override value if supplied, else the stored/OCR'd value).
+    // This is what lets "Approve" work straight from the review card for clean
+    // receipts, while blocking an accidental confirm of a blank/zero one — the
+    // user just types the missing value on the receipt, then approves.
+    const effectiveTotal = total !== undefined ? total : (receipt.total_cents as number | null);
+    const effectiveDate =
+      "receiptDate" in o ? (o.receiptDate as string | null) : (receipt.receipt_date as string | null);
+    if (effectiveTotal == null || !effectiveDate) {
+      return NextResponse.json(
+        { error: "A total and date are required to confirm. Add them on the receipt, then approve." },
+        { status: 400 },
+      );
+    }
+
+    const wasConfirmed = receipt.status === "confirmed";
+
     const { data: updated, error: upErr } = await supabase
       .from("receipts").update(patch).eq("id", id).select("*").single();
     if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
-    try {
-      await logAudit({ action: AUDIT_ACTIONS.RECEIPT_CONFIRMED, entityType: "receipt", entityId: id });
-    } catch (e) {
-      console.error("[receipts/ocr] audit log failed:", (e as Error).message);
+    // Idempotent audit: only log on the pending -> confirmed transition. A retried
+    // approve, or a re-save of an already-confirmed receipt, must NOT write a
+    // duplicate RECEIPT_CONFIRMED row to the money trail.
+    if (!wasConfirmed) {
+      try {
+        await logAudit({ action: AUDIT_ACTIONS.RECEIPT_CONFIRMED, entityType: "receipt", entityId: id });
+      } catch (e) {
+        console.error("[receipts/ocr] audit log failed:", (e as Error).message);
+      }
     }
     return NextResponse.json({ receipt: updated });
   }
