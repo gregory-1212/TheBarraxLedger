@@ -62,6 +62,14 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
   const [busy, setBusy] = useState<"" | "confirm" | "reextract" | "delete">("");
   const [error, setError] = useState<string | null>(null);
 
+  // Inline "add new vendor" — so a retail store (Home Depot, Kroger, …) can be
+  // created right here without leaving the receipt. Name only; the endpoint
+  // reuses an existing same-name vendor rather than duplicating a chain.
+  const [vendorList, setVendorList] = useState(vendors);
+  const [showNewVendor, setShowNewVendor] = useState(false);
+  const [newVendorName, setNewVendorName] = useState("");
+  const [vendorBusy, setVendorBusy] = useState(false);
+
   async function post(payload: Record<string, unknown>) {
     const res = await fetch(`/api/receipts/${receipt.id}/ocr`, {
       method: "POST",
@@ -118,6 +126,31 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
     finally { setBusy(""); }
   }
 
+  async function addVendor() {
+    const name = newVendorName.trim();
+    if (!name) return;
+    setVendorBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/vendors/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(data.error || "Could not add vendor."); return; }
+      const v = data.vendor as { id: string; name: string };
+      setVendorList((prev) =>
+        prev.some((x) => x.id === v.id)
+          ? prev
+          : [...prev, v].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setVendorId(v.id);
+      setShowNewVendor(false);
+      setNewVendorName("");
+    } catch { setError("Network error — please try again."); }
+    finally { setVendorBusy(false); }
+  }
+
   const labelCls = "block text-xs uppercase tracking-wide text-zinc-500 mb-1";
   const fieldCls = "w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-600";
 
@@ -160,10 +193,55 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
             <label className={labelCls}>Vendor<Conf c={conf.vendor_name} /></label>
             <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={fieldCls}>
               <option value="">— select vendor —</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              {vendorList.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
-            {ocrSuggestedVendor && !vendorId && (
-              <p className="mt-1 text-[11px] text-zinc-500">OCR read: &ldquo;{ocrSuggestedVendor}&rdquo; — pick the matching vendor above.</p>
+
+            {!showNewVendor ? (
+              <button
+                type="button"
+                onClick={() => { setNewVendorName(""); setShowNewVendor(true); }}
+                className="mt-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+              >
+                + Add a new vendor
+              </button>
+            ) : (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={newVendorName}
+                  onChange={(e) => setNewVendorName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addVendor(); } }}
+                  placeholder="New vendor name (e.g. Home Depot)"
+                  className={fieldCls}
+                />
+                <button
+                  type="button"
+                  onClick={addVendor}
+                  disabled={vendorBusy || !newVendorName.trim()}
+                  className="shrink-0 rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors disabled:opacity-50"
+                >
+                  {vendorBusy ? "Adding…" : "Add"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewVendor(false)}
+                  className="shrink-0 text-xs text-zinc-500 hover:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {ocrSuggestedVendor && !vendorId && !showNewVendor && (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                OCR read: &ldquo;{ocrSuggestedVendor}&rdquo; — pick it above, or{" "}
+                <button
+                  type="button"
+                  onClick={() => { setNewVendorName(ocrSuggestedVendor); setShowNewVendor(true); }}
+                  className="underline hover:text-zinc-300"
+                >
+                  add it as a new vendor
+                </button>.
+              </p>
             )}
           </div>
 

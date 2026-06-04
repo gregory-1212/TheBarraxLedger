@@ -32,7 +32,7 @@ async function createVendor(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const dba = String(formData.get("dba") ?? "").trim();
-  const vendor_type = String(formData.get("vendor_type") ?? "");
+  const vendor_type = String(formData.get("vendor_type") ?? "") || "other";
   const contact_name = String(formData.get("contact_name") ?? "").trim();
   const contact_email = String(formData.get("contact_email") ?? "").trim();
   const contact_phone = String(formData.get("contact_phone") ?? "").trim();
@@ -47,8 +47,8 @@ async function createVendor(formData: FormData) {
   );
   const notes = String(formData.get("notes") ?? "").trim();
 
-  if (!name || !vendor_type) {
-    throw new Error("Missing required fields");
+  if (!name) {
+    throw new Error("Vendor name is required");
   }
 
   const supabase = await createClient();
@@ -107,14 +107,14 @@ export default async function NewVendorPage() {
               htmlFor="name"
               className="block text-sm font-medium text-zinc-300 mb-1"
             >
-              Legal name <span className="text-red-400">*</span>
+              Vendor name <span className="text-red-400">*</span>
             </label>
             <input
               id="name"
               name="name"
               type="text"
               required
-              placeholder="e.g. Vercel Inc."
+              placeholder="e.g. Home Depot"
               className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-700"
             />
           </div>
@@ -140,15 +140,14 @@ export default async function NewVendorPage() {
               htmlFor="vendor_type"
               className="block text-sm font-medium text-zinc-300 mb-1"
             >
-              Type <span className="text-red-400">*</span>
+              Type
             </label>
             <select
               id="vendor_type"
               name="vendor_type"
-              required
+              defaultValue="other"
               className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
             >
-              <option value="">Select…</option>
               {VENDOR_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
