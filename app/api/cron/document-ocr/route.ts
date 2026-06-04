@@ -18,8 +18,8 @@ import { extractDocumentText, isSupportedOcrType } from "@/utils/ocr";
 // Auth: Bearer CRON_SECRET when set (same convention as the reminders/recurring-bills
 // crons). Service-role client bypasses RLS so the cron sees every document.
 //
-// NOT YET SCHEDULED in vercel.json — needs migration 014 run + ANTHROPIC_API_KEY +
-// CRON_SECRET in the Ledger's Vercel env first (see the LED-55 handoff note).
+// Scheduled in vercel.json (11:00 UTC / ~6am CT daily). Migration 014 is run and
+// ANTHROPIC_API_KEY + CRON_SECRET are set in the Ledger Vercel env (2026-06-04).
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // a batch of sequential Vision calls can take a while
