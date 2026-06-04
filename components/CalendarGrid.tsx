@@ -10,7 +10,8 @@ import { CalendarSourceFilter } from "@/components/CalendarSourceFilter";
 // Renders a 6-row × 7-col grid showing the target month + padding from
 // adjacent months. Events fetched server-side from compliance_items + bills.
 //
-// Mobile (sm:hidden / hidden sm:block): grid hidden, agenda list shown.
+// Mobile (<768px / md): the 7-col grid is hidden and a day-grouped agenda list
+// with sticky day headers is shown instead (LED-54).
 
 type Props = {
   year: number;
@@ -191,8 +192,8 @@ export async function CalendarGrid({ year, month }: Props) {
         </div>
       </div>
 
-      {/* Desktop: 7-col grid */}
-      <div className="hidden sm:block">
+      {/* Desktop (>=768px): 7-col grid */}
+      <div className="hidden md:block">
         <div className="grid grid-cols-7 gap-px text-xs text-zinc-500 mb-1">
           {WEEKDAYS.map((w) => (
             <div key={w} className="px-2 py-1 text-center">
@@ -267,52 +268,77 @@ export async function CalendarGrid({ year, month }: Props) {
         />
       </div>
 
-      {/* Mobile: agenda list */}
-      <div className="sm:hidden">
-        {events.length === 0 ? (
-          <p className="text-sm text-zinc-600 text-center py-8">
-            Nothing scheduled this month.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {events
-              .filter((e) => {
-                // only show events in current month for mobile to reduce noise
-                return (
-                  e.date.slice(0, 7) === `${year}-${pad(month)}`
-                );
-              })
-              .map((e) => {
-                const sev = severityForDate(e.date, {
-                  paid: e.source === "bill" && e.status === "paid",
-                  status: e.status,
-                });
-                return (
-                  <li key={e.id} data-source={e.source}>
-                    <Link
-                      href={e.href}
-                      className={
-                        "block rounded-md px-3 py-2 text-sm border-l-2 " +
-                        SOURCE_COLORS[e.source] +
-                        " " +
-                        SEVERITY_BG_CLASSES[sev]
-                      }
-                    >
-                      <div className="flex justify-between items-baseline">
-                        <span>{e.title}</span>
-                        <span className="text-[10px] opacity-75 tabular-nums">
-                          {new Date(e.date + "T00:00:00").toLocaleDateString(
-                            "en-US",
-                            { month: "short", day: "numeric" },
-                          )}
-                        </span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-          </ul>
-        )}
+      {/* Mobile (<768px): day-grouped agenda with sticky day headers (LED-54) */}
+      <div className="md:hidden">
+        {(() => {
+          const monthEvents = events.filter(
+            (e) => e.date.slice(0, 7) === `${year}-${pad(month)}`,
+          );
+          if (monthEvents.length === 0) {
+            return (
+              <p className="text-sm text-zinc-600 text-center py-8">
+                Nothing scheduled this month.
+              </p>
+            );
+          }
+          // events arrive sorted ascending — group consecutive ones by day.
+          const byDay = new Map<string, CalEvent[]>();
+          for (const e of monthEvents) {
+            const arr = byDay.get(e.date) ?? [];
+            arr.push(e);
+            byDay.set(e.date, arr);
+          }
+          const todayIso = toIso(new Date(new Date().toDateString()));
+          return [...byDay.entries()].map(([iso, dayEvents]) => {
+            const d = new Date(iso + "T00:00:00");
+            const isToday = iso === todayIso;
+            return (
+              <section key={iso}>
+                <h3
+                  className={
+                    "sticky top-0 z-10 -mx-1 px-1 py-1.5 mb-1.5 text-xs font-medium border-b border-zinc-800 bg-zinc-950/95 backdrop-blur " +
+                    (isToday ? "text-orange-300" : "text-zinc-400")
+                  }
+                >
+                  {isToday && (
+                    <span className="mr-1.5 inline-block w-1.5 h-1.5 rounded-full bg-orange-400 align-middle" />
+                  )}
+                  {d.toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </h3>
+                <ul className="space-y-1.5 mb-3">
+                  {dayEvents.map((e) => {
+                    const sev = severityForDate(e.date, {
+                      paid: e.source === "bill" && e.status === "paid",
+                      status: e.status,
+                    });
+                    return (
+                      <li key={e.id} data-source={e.source}>
+                        <Link
+                          href={e.href}
+                          className={
+                            "flex items-center justify-between gap-2 rounded-md px-3 py-2.5 text-sm border-l-2 " +
+                            SOURCE_COLORS[e.source] +
+                            " " +
+                            SEVERITY_BG_CLASSES[sev]
+                          }
+                        >
+                          <span className="truncate">{e.title}</span>
+                          <span className="shrink-0 text-[10px] uppercase tracking-wide opacity-60">
+                            {e.source}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          });
+        })()}
       </div>
     </div>
   );
