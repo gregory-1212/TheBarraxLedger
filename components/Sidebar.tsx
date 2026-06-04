@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/server";
 
 // Left sidebar with the planned Ledger tabs. Each tab is just a link for now;
 // active-state styling and real content come later.
@@ -13,7 +14,23 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
-export default function Sidebar() {
+export default async function Sidebar() {
+  // LED-20: "drafts to review" badge on Bills. The recurring-bills cron creates
+  // bills with status='draft' awaiting confirmation; surface the count so Julie
+  // knows to review them. Best-effort — never block the nav render.
+  let draftCount = 0;
+  try {
+    const supabase = await createClient();
+    const { count } = await supabase
+      .from("bills")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "draft")
+      .is("deleted_at", null);
+    draftCount = count ?? 0;
+  } catch {
+    /* badge is best-effort; a query error must not break navigation */
+  }
+
   return (
     <aside className="w-56 shrink-0 bg-zinc-900 border-r border-zinc-800 flex flex-col">
       <div className="px-5 py-5 border-b border-zinc-800">
@@ -33,6 +50,15 @@ export default function Sidebar() {
           >
             <span className="w-4 text-center text-zinc-500">{item.icon}</span>
             <span>{item.label}</span>
+            {item.href === "/bills" && draftCount > 0 && (
+              <span
+                className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-[2px] bg-[#806D40] text-zinc-950 text-[11px] font-semibold tabular-nums"
+                title={`${draftCount} draft bill${draftCount === 1 ? "" : "s"} to review`}
+                aria-label={`${draftCount} draft bills to review`}
+              >
+                {draftCount}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
