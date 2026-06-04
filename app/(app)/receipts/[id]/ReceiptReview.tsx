@@ -59,7 +59,7 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
   const [ocrError, setOcrError] = useState(receipt.ocr_error);
   const [ocrSuggestedVendor, setOcrSuggestedVendor] = useState(receipt.ocr_data?.vendorName ?? null);
 
-  const [busy, setBusy] = useState<"" | "confirm" | "reextract">("");
+  const [busy, setBusy] = useState<"" | "confirm" | "reextract" | "delete">("");
   const [error, setError] = useState<string | null>(null);
 
   async function post(payload: Record<string, unknown>) {
@@ -103,6 +103,17 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
       if (!res.ok) { setError(data.error || "Could not save."); return; }
       setStatus("confirmed");
       router.refresh();
+    } catch { setError("Network error — please try again."); }
+    finally { setBusy(""); }
+  }
+
+  async function del() {
+    if (!window.confirm("Delete this receipt? It and its photo are removed from the Ledger (an admin can recover it if needed).")) return;
+    setBusy("delete"); setError(null);
+    try {
+      const { res, data } = await post({ action: "delete" });
+      if (!res.ok) { setError(data.error || "Could not delete."); return; }
+      router.push("/receipts");
     } catch { setError("Network error — please try again."); }
     finally { setBusy(""); }
   }
@@ -201,6 +212,10 @@ export default function ReceiptReview({ receipt, fileUrl, fileMime, vendors, cat
             <button onClick={reExtract} disabled={!!busy}
               className="rounded-md border border-zinc-700 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-900 transition-colors disabled:opacity-50">
               {busy === "reextract" ? "Reading…" : "Re-run OCR"}
+            </button>
+            <button onClick={del} disabled={!!busy}
+              className="rounded-md border border-red-900/60 px-3 py-2.5 text-sm text-red-300 hover:bg-red-950/40 transition-colors disabled:opacity-50">
+              {busy === "delete" ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>

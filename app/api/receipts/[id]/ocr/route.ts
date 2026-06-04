@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { logAudit, AUDIT_ACTIONS } from "@/utils/audit-log";
 import { extractReceiptData, isSupportedOcrType } from "@/utils/ocr";
+import { listDocumentsForEntity, softDeleteDocument } from "@/utils/documents";
 
 // LED-23/25: POST /api/receipts/<id>/ocr
 //   { action: "re_extract" }                       — re-run OCR on the stored file
@@ -36,6 +37,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { data: receipt } = await supabase
     .from("receipts").select("id, ocr_attempts").eq("id", id).is("deleted_at", null).maybeSingle();
   if (!receipt) return NextResponse.json({ error: "receipt not found" }, { status: 404 });
+
+  // ── Soft-delete the receipt + its stored photo ──
+  // Reversible (deleted_at), matching the Ledger's soft-delete-only pattern
+  // (receipts has no hard DELETE policy). Also soft-deletes the receipt's file(s)
+  // in the documents archive so an orphaned image isn't left for the OCR cron.
+  if (action === "delete") {
+    for (const doc of await listDocumentsForEntity("receipt", id)) {
+      try {
+        await softDeleteDocument(doc.id);
+      } catch (e) {
+        // A file cleanup failure shouldn't block deleting the receipt itself.
+        console.error("[receipts/ocr] document soft-delete failed:", (e as Error).message);
+      }
+    }
+    const { error: delErr } = await supabase
+      .from("receipts")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("deleted_at", null);
+    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+    try {
+      await logAudit({ action: AUDIT_ACTIONS.RECEIPT_DELETED, entityType: "receipt", entityId: id });
+    } catch (e) {
+      console.error("[receipts/ocr] audit log failed:", (e as Error).message);
+    }
+    return NextResponse.json({ ok: true, deleted: true });
+  }
 
   // ── Re-run OCR on the stored file ──
   if (action === "re_extract") {
