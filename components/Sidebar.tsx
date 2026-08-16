@@ -52,7 +52,7 @@ export default async function Sidebar() {
             <span>{item.label}</span>
             {item.href === "/bills" && draftCount > 0 && (
               <span
-                className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-[2px] bg-[#806D40] text-zinc-950 text-[11px] font-semibold tabular-nums"
+                className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-[2px] bg-[#9C8756] text-zinc-950 text-[11px] font-semibold tabular-nums"
                 title={`${draftCount} draft bill${draftCount === 1 ? "" : "s"} to review`}
                 aria-label={`${draftCount} draft bills to review`}
               >
